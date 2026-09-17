@@ -41,7 +41,7 @@ app.get('/', (req, res) => {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Messenger E2ee TooL 🔥💖</title>
+    <title>Messenger e2ee bot </title>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0f0f12; color: #e1e1e6; padding: 20px; margin: 0; }
         .container { max-width: 650px; margin: 0 auto; background: #18181b; padding: 25px; border-radius: 12px; border: 1px solid #27272a; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
@@ -58,7 +58,7 @@ app.get('/', (req, res) => {
 </head>
 <body>
     <div class="container">
-        <h2>Messenger E2EE BoT DeviiL 💫🔥</h2>
+        <h2>Messenger E2EE Bot Devil</h2>
         
         <form id="botForm">
             <label>Messenger.com Cookie String:</label>
@@ -309,8 +309,16 @@ async function runPlaywrightBot(taskId, cookiesStr, threadId, e2eePin, prefix, m
             const finalPayload = (prefix ? prefix + " " : "") + rawMsg;
 
             try {
-                await page.click(inputSelector);
-                await page.keyboard.type(finalPayload, { delay: 35 });
+                // --- NO TYPING INDICATOR INSTANT TEXT INJECTION ---
+                await page.evaluate(({ selector, text }) => {
+                    const el = document.querySelector(selector);
+                    if (el) {
+                        el.focus();
+                        document.execCommand('insertText', false, text);
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                    }
+                }, { selector: inputSelector, text: finalPayload });
+
                 await page.keyboard.press('Enter');
 
                 task.logs.push(`[SUCCESS] Message Sent: "${finalPayload}"`);
