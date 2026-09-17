@@ -4,7 +4,8 @@
   "description": "Playwright Dashboard",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "postinstall": "npx playwright install chromium --with-deps"
   },
   "dependencies": {
     "express": "^5.1.0",
