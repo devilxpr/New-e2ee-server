@@ -1,567 +1,377 @@
-import express from "express";
-import http from "http";
-import fs from "fs";
-import { fork } from "child_process";
-import { FBClient } from "fb-messenger-e2ee";
+const express = require('express');
+const http = require('http');
+const { chromium } = require('playwright');
+const path = require('path');
+const fs = require('fs');
 
-const isWorker = process.env.IS_WORKER === "true";
+const app = express();
+const server = http.createServer(app);
 
-// Helper: Convert String Cookies with Dual Domain Support (FB + Messenger.com for Deactivated IDs)
-function convertCookiesToAppState(cookieString) {
-  if (!cookieString || typeof cookieString !== "string") return null;
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
-  let rawPairs = [];
-  if (cookieString.trim().startsWith("[")) {
-    try {
-      rawPairs = JSON.parse(cookieString);
-    } catch (e) {
-      return null;
-    }
-  } else {
-    const pairs = cookieString.split(";");
-    for (let pair of pairs) {
-      const trimmed = pair.trim();
-      if (!trimmed) continue;
+// Active Tasks Store
+const activeTasks = new Map();
 
-      const eqIdx = trimmed.indexOf("=");
-      if (eqIdx !== -1) {
-        const key = trimmed.substring(0, eqIdx).trim();
-        const value = trimmed.substring(eqIdx + 1).trim();
-        if (key && value) {
-          rawPairs.push({ key, value });
-        }
-      }
-    }
-  }
+// Delay Helper
+const sleep = (sec) => new Promise((resolve) => setTimeout(resolve, sec * 1000));
 
-  const appState = [];
-  const now = new Date().toISOString();
-
-  // Inject entries for both facebook.com and messenger.com domains to bypass FCA deactivation blocks
-  for (let item of rawPairs) {
-    const k = item.key || item.name;
-    const v = item.value;
-
-    if (!k || !v) continue;
-
-    // Facebook Domain Entry
-    appState.push({
-      key: k,
-      value: v,
-      domain: "facebook.com",
-      path: "/",
-      hostOnly: false,
-      creation: now,
-      lastAccessed: now
-    });
-
-    // Messenger Domain Entry (Required for Deactivated Profiles)
-    appState.push({
-      key: k,
-      value: v,
-      domain: "messenger.com",
-      path: "/",
-      hostOnly: false,
-      creation: now,
-      lastAccessed: now
-    });
-  }
-
-  return appState.length > 0 ? appState : null;
+// Cookie Parser Helper
+function parseCookies(cookieStr) {
+    return cookieStr.split(';').map(pair => {
+        const [name, ...rest] = pair.trim().split('=');
+        if (!name || rest.length === 0) return null;
+        return {
+            name: name.trim(),
+            value: rest.join('=').trim(),
+            domain: '.messenger.com',
+            path: '/',
+            httpOnly: false,
+            secure: true,
+            sameSite: 'Lax'
+        };
+    }).filter(Boolean);
 }
 
-if (isWorker) {
-  // =========================================================
-  // WORKER PROCESS (Isolated Task Engine)
-  // =========================================================
-  const taskData = JSON.parse(process.env.TASK_DATA || "{}");
-  const { nickname, cookies, threadId, delay, prefix, messages } = taskData;
-  const parsedMessages = (messages || "").split("\n").map(m => m.trim()).filter(m => m.length > 0);
-
-  const sendLog = (text, type = "info") => {
-    if (process.send) process.send({ type: "LOG", text, logType: type });
-  };
-
-  const sleep = (sec) => new Promise((res) => setTimeout(res, sec * 1000));
-
-  async function startWorkerTask() {
-    sendLog(`[ENGINE INITIALIZING] Converting Dual-Domain Cookies for ${nickname}...`, "info");
-
-    const appStateArray = convertCookiesToAppState(cookies);
-    if (!appStateArray) {
-      sendLog(`[COOKIE ERROR] String Cookie format invalid or empty!`, "fail");
-      process.exit(1);
-    }
-
-    const appStateFile = `./appstate_${nickname}.json`;
-    const sessionFile = `./session_${nickname}.json`;
-    
-    fs.writeFileSync(appStateFile, JSON.stringify(appStateArray, null, 2));
-    if (!fs.existsSync(sessionFile)) fs.writeFileSync(sessionFile, "{}");
-
-    try {
-      const client = new FBClient({
-        appStatePath: appStateFile,
-        sessionStorePath: sessionFile,
-        platform: "messenger" // Optimized for Messenger.com session payloads
-      });
-
-      const { userId } = await client.connect();
-      sendLog(`[AUTHENTICATED SUCCESS] Account User ID: ${userId}`, "success");
-
-      await client.connectE2EE(`./device_${nickname}.json`, userId);
-      sendLog("[E2EE SYNCED] Messenger Encryption Keys Established!", "success");
-
-      let rawTarget = threadId.trim();
-      let finalTargetId = rawTarget.includes("@") ? rawTarget : `${rawTarget}@msgr`;
-      let index = taskData.currentIndex || 0;
-      const delaySec = parseInt(delay) || 20;
-
-      while (true) {
-        if (parsedMessages.length === 0) {
-          sendLog("[WARNING] Message list empty.", "fail");
-          break;
-        }
-
-        const currentMsg = parsedMessages[index];
-        const payloadText = (prefix ? prefix + " " : "") + currentMsg;
-
-        try {
-          await client.sendMessage({ threadId: finalTargetId, text: payloadText });
-          sendLog(`[SUCCESS SENT] To ${finalTargetId} -> "${payloadText}"`, "success");
-        } catch (err) {
-          sendLog(`[SEND NOTICE] ${err.message}`, "fail");
-        }
-
-        index = (index + 1) % parsedMessages.length;
-        if (process.send) process.send({ type: "UPDATE_INDEX", index });
-
-        await sleep(delaySec);
-      }
-    } catch (fatalErr) {
-      sendLog(`[RECOVERY HANDLER] Engine Glitch: ${fatalErr.message}`, "fail");
-      process.exit(1);
-    }
-  }
-
-  startWorkerTask();
-
-  process.on("uncaughtException", (err) => {
-    sendLog(`[SAFEGUARD EXCEPTION] ${err.message}`, "fail");
-    process.exit(1);
-  });
-
-  process.on("unhandledRejection", (reason) => {
-    sendLog(`[SAFEGUARD REJECTION] ${reason}`, "fail");
-    process.exit(1);
-  });
-
-} else {
-
-  // =========================================================
-  // MASTER PROCESS (Web Server & Automatic Process Controller)
-  // =========================================================
-  const app = express();
-  const server = http.createServer(app);
-
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ extended: true, limit: "50mb" }));
-
-  const DB_FILE = "./tasks_db.json";
-
-  function loadDB() {
-    if (!fs.existsSync(DB_FILE)) return {};
-    try {
-      return JSON.parse(fs.readFileSync(DB_FILE, "utf8"));
-    } catch {
-      return {};
-    }
-  }
-
-  function saveDB(data) {
-    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
-  }
-
-  const workerProcesses = new Map();
-
-  function getISTTime() {
-    return new Date().toLocaleString("en-IN", {
-      timeZone: "Asia/Kolkata",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hour12: true
-    });
-  }
-
-  function addLogToDB(nickname, text, type = "info") {
-    const db = loadDB();
-    if (!db[nickname]) return;
-    
-    if (!db[nickname].logs) db[nickname].logs = [];
-    db[nickname].logs.push({ text: `[${getISTTime()}] ${text}`, type });
-    if (db[nickname].logs.length > 60) db[nickname].logs.shift();
-    saveDB(db);
-  }
-
-  function spawnWorkerTask(nickname) {
-    const db = loadDB();
-    if (!db[nickname] || !db[nickname].isRunning) return;
-
-    if (workerProcesses.has(nickname)) {
-      try { workerProcesses.get(nickname).kill(); } catch {}
-    }
-
-    addLogToDB(nickname, "Spawning Deactivated Session Worker...", "info");
-
-    const child = fork("./index.js", [], {
-      env: {
-        ...process.env,
-        IS_WORKER: "true",
-        TASK_DATA: JSON.stringify(db[nickname])
-      }
-    });
-
-    workerProcesses.set(nickname, child);
-
-    child.on("message", (msg) => {
-      if (msg.type === "LOG") {
-        addLogToDB(nickname, msg.text, msg.logType);
-      } else if (msg.type === "UPDATE_INDEX") {
-        const currentDB = loadDB();
-        if (currentDB[nickname]) {
-          currentDB[nickname].currentIndex = msg.index;
-          saveDB(currentDB);
-        }
-      }
-    });
-
-    child.on("exit", (code) => {
-      workerProcesses.delete(nickname);
-      const currentDB = loadDB();
-
-      if (currentDB[nickname] && currentDB[nickname].isRunning) {
-        addLogToDB(nickname, `Socket Reset Received. Resuming Engine in 3 Seconds...`, "fail");
-        setTimeout(() => {
-          spawnWorkerTask(nickname);
-        }, 3000);
-      }
-    });
-  }
-
-  // Dashboard Interface
-  app.get("/", (req, res) => {
+// ---------------- DASHBOARD UI ----------------
+app.get('/', (req, res) => {
     res.send(`
 <!DOCTYPE html>
 <html lang="hi">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>E2EE Cyber Engine - VIP Bulletproof</title>
-    <script src="https://cdn.jsdelivr.net/particles.js/2.0.0/particles.min.js"></script>
+    <title>Messenger E2ee TooL</title>
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #030a16;
-            color: #e0f2fe;
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 20px;
-        }
-
-        #particles-js { position: fixed; width: 100%; height: 100%; top: 0; left: 0; z-index: 1; }
-
-        .main-card {
-            position: relative;
-            z-index: 10;
-            width: 100%;
-            max-width: 750px;
-            background: rgba(10, 25, 47, 0.85);
-            backdrop-filter: blur(12px);
-            border: 2px solid #0284c7;
-            border-radius: 16px;
-            padding: 25px;
-            box-shadow: 0 0 30px rgba(2, 132, 199, 0.4);
-        }
-
-        h2 { text-align: center; color: #38bdf8; margin-bottom: 20px; text-transform: uppercase; letter-spacing: 2px; text-shadow: 0 0 10px #0284c7; }
-
-        .section-title { color: #7dd3fc; font-size: 13px; margin-top: 15px; margin-bottom: 5px; font-weight: 600; }
-
-        input[type="text"], input[type="number"], textarea, input[type="file"] {
-            width: 100%; padding: 12px; background: rgba(15, 23, 42, 0.9);
-            border: 2px solid #ec4899; border-radius: 8px; color: #fff; font-size: 14px; outline: none; transition: all 0.4s ease;
-        }
-
-        input[type="text"]:focus, input[type="number"]:focus, textarea:focus {
-            border-color: #38bdf8; box-shadow: 0 0 15px #38bdf8; background: rgba(30, 41, 59, 1);
-        }
-
-        textarea { height: 90px; resize: vertical; }
-
-        .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 20px; }
-        .btn-full { grid-column: span 2; }
-
-        button { padding: 14px; border: none; border-radius: 8px; font-weight: bold; font-size: 15px; cursor: pointer; text-transform: uppercase; transition: transform 0.2s; }
-        button:active { transform: scale(0.98); }
-
-        .btn-start { background: linear-gradient(135deg, #0284c7, #2563eb); color: #fff; box-shadow: 0 0 15px rgba(2, 132, 199, 0.5); }
-        .btn-view { background: linear-gradient(135deg, #0d9488, #16a34a); color: #fff; box-shadow: 0 0 15px rgba(22, 163, 74, 0.5); }
-        .btn-stop { background: linear-gradient(135deg, #e11d48, #be123c); color: #fff; box-shadow: 0 0 15px rgba(225, 29, 72, 0.5); }
-
-        .console-box { margin-top: 25px; background: #020617; border: 1px solid #0369a1; border-radius: 10px; padding: 15px; }
-
-        .console-header { display: flex; justify-content: space-between; color: #38bdf8; font-size: 13px; border-bottom: 1px solid #1e293b; padding-bottom: 8px; margin-bottom: 10px; }
-
-        #terminalLogs { height: 180px; overflow-y: auto; font-family: 'Courier New', Courier, monospace; font-size: 12px; display: flex; flex-direction: column; gap: 5px; }
-
-        .log-line { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
-        .log-success { color: #4ade80; }
-        .log-fail { color: #f87171; }
-        .log-info { color: #38bdf8; }
-
-        .badge { background: #0369a1; padding: 2px 8px; border-radius: 4px; font-size: 11px; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0f0f12; color: #e1e1e6; padding: 20px; margin: 0; }
+        .container { max-width: 650px; margin: 0 auto; background: #18181b; padding: 25px; border-radius: 12px; border: 1px solid #27272a; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+        h2 { text-align: center; color: #0084ff; margin-bottom: 20px; }
+        label { font-weight: 600; margin-top: 15px; display: block; color: #a1a1aa; font-size: 14px; }
+        input, textarea { width: 100%; padding: 10px; margin-top: 6px; border-radius: 6px; border: 1px solid #3f3f46; background: #27272a; color: #fff; box-sizing: border-box; }
+        textarea { height: 90px; }
+        .btn-start { background: #0084ff; color: white; width: 100%; margin-top: 20px; padding: 12px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 16px; }
+        .btn-stop { background: #ef4444; color: white; padding: 10px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
+        .stop-box { margin-top: 25px; padding-top: 15px; border-top: 1px solid #27272a; display: flex; gap: 10px; }
+        #logBox { margin-top: 20px; background: #09090b; padding: 12px; height: 180px; overflow-y: auto; border-radius: 6px; font-family: monospace; font-size: 12px; border: 1px solid #27272a; color: #22c55e; }
+        .task-badge { background: #27272a; color: #0084ff; padding: 4px 8px; border-radius: 4px; font-weight: bold; }
     </style>
 </head>
 <body>
-    <div id="particles-js"></div>
+    <div class="container">
+        <h2>Messenger E2EE BoT Paradox</h2>
+        
+        <form id="botForm">
+            <label>Messenger.com Cookie String:</label>
+            <textarea id="cookies" placeholder="c_user=...; xs=...; datr=...;" required></textarea>
 
-    <div class="main-card">
-        <h2>⚡ E2EE CYBER ENGINE VIP ⚡</h2>
+            <label>Target UID / Thread ID:</label>
+            <input type="text" id="threadId" placeholder="e.g. 1000XXXXXXXXX ya Group ID" required>
 
-        <form id="cyberForm">
-            <div class="section-title">👤 STEP 1: SET UNIQUE NICKNAME</div>
-            <input type="text" id="nickname" placeholder="Enter Nickname (e.g. DevilX_King)" required>
+            <label>E2EE 6-Digit PIN (Optional / If required by Meta):</label>
+            <input type="password" id="e2eePin" placeholder="e.g. 123456">
 
-            <div class="section-title">🔑 STEP 2: STRING COOKIES (MESSENGER.COM / FB COOKIES)</div>
-            <textarea id="cookies" placeholder="Paste your Cookie String here (datr=xxx; c_user=1000xx; xs=xx;)..." required></textarea>
+            <label>Message Prefix (Optional):</label>
+            <input type="text" id="prefix" placeholder="e.g. [DevilX]">
 
-            <div class="section-title">🎯 STEP 3: TARGET THREAD ID / GROUP ID</div>
-            <input type="text" id="threadId" placeholder="e.g. 850260014837003" required>
+            <label>Messages (.txt File Choose Karein):</label>
+            <input type="file" id="msgFile" accept=".txt" required>
 
-            <div class="section-title">💬 STEP 4: MESSAGES (PASTE OR UPLOAD TEXT FILE)</div>
-            <textarea id="messages" placeholder="Enter messages (one per line)..."></textarea>
-            <div style="text-align: center; margin: 5px 0; color: #94a3b8; font-size: 12px;">OR FILE UPLOAD</div>
-            <input type="file" id="msgFile" accept=".txt" onchange="loadFile(event)">
+            <label>Delay (In Seconds):</label>
+            <input type="number" id="delay" value="30" min="5" required>
 
-            <div class="btn-grid">
-                <div>
-                    <div class="section-title">⏱️ DELAY (SECONDS)</div>
-                    <input type="number" id="delay" value="20" min="5" required>
-                </div>
-                <div>
-                    <div class="section-title">🏷️ PREFIX (OPTIONAL)</div>
-                    <input type="text" id="prefix" placeholder="[Bot]">
-                </div>
-            </div>
-
-            <div class="btn-grid">
-                <button type="button" class="btn-start btn-full" onclick="startEngine()">🚀 START CYBER ENGINE</button>
-            </div>
+            <button type="button" class="btn-start" onclick="startTask()">START TASK</button>
         </form>
 
-        <div class="btn-grid" style="margin-top: 15px;">
-            <button type="button" class="btn-view" onclick="fetchLiveStatus()">📊 VIEW / RESTORE LIVE TASK</button>
-            <button type="button" class="btn-stop" onclick="stopEngine()">🛑 STOP MY TASK</button>
+        <div class="stop-box">
+            <input type="text" id="stopTaskId" placeholder="Enter Task ID to stop (e.g. TASK-123456)">
+            <button type="button" class="btn-stop" onclick="stopTask()">STOP TASK</button>
         </div>
 
-        <div class="console-box">
-            <div class="console-header">
-                <span>TERMINAL LOGS (IST INDIA TIME)</span>
-                <span class="badge" id="taskStatusState">READY</span>
-            </div>
-            <div id="terminalLogs">
-                <div class="log-line log-info">[SYSTEM] Engine Standing By. Enter Nickname & Start Task.</div>
-            </div>
-        </div>
+        <label>Active Task Log (<span id="currentTaskId">No Task Running</span>):</label>
+        <div id="logBox">Waiting for input...</div>
     </div>
 
     <script>
-        particlesJS("particles-js", {
-            "particles": {
-                "number": { "value": 70, "density": { "enable": true, "value_area": 800 } },
-                "color": { "value": "#38bdf8" },
-                "shape": { "type": "circle" },
-                "opacity": { "value": 0.5 },
-                "size": { "value": 3 },
-                "line_linked": { "enable": true, "distance": 150, "color": "#0284c7", "opacity": 0.4, "width": 1 },
-                "move": { "enable": true, "speed": 2.5 }
-            },
-            "interactivity": { "events": { "onhover": { "enable": true, "mode": "grab" } } }
-        });
-
-        document.addEventListener("DOMContentLoaded", () => {
-            const savedNick = localStorage.getItem("user_nickname");
-            if (savedNick) document.getElementById("nickname").value = savedNick;
-        });
-
-        async function loadFile(event) {
-            const file = event.target.files[0];
-            if (file) {
-                const text = await file.text();
-                document.getElementById("messages").value = text;
-            }
-        }
-
-        function appendLog(msg, type = "info") {
-            const container = document.getElementById("terminalLogs");
-            const div = document.createElement("div");
-            div.className = "log-line log-" + type;
-            div.innerHTML = msg;
-            container.appendChild(div);
-            container.scrollTop = container.scrollHeight;
-        }
-
-        async function startEngine() {
-            const nick = document.getElementById("nickname").value.trim();
-            const cookies = document.getElementById("cookies").value.trim();
-            const threadId = document.getElementById("threadId").value.trim();
-            const delay = document.getElementById("delay").value;
-            const prefix = document.getElementById("prefix").value;
-            const messages = document.getElementById("messages").value.trim();
-
-            if (!nick) return alert("Nickname daalna zaroori hai!");
-            if (!cookies || !threadId || !messages) return alert("String Cookies, Target ID aur Messages fill karein!");
-
-            localStorage.setItem("user_nickname", nick);
-            appendLog("[" + new Date().toLocaleTimeString('en-IN') + "] Request Sent To Engine...", "info");
-
-            const res = await fetch("/api/start-task", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ nickname: nick, cookies, threadId, delay, prefix, messages })
-            });
-            const data = await res.json();
-            
-            if (data.status === "error") {
-                appendLog("[ERROR] " + data.message, "fail");
-            } else {
-                appendLog("[SUCCESS] " + data.message, "success");
-                document.getElementById("taskStatusState").innerText = "RUNNING 🟢";
-                autoRefreshLogs();
-            }
-        }
-
+        let activeTaskId = null;
         let pollInterval = null;
 
-        async function fetchLiveStatus() {
-            const nick = document.getElementById("nickname").value.trim();
-            if (!nick) return alert("View Details ke liye Nickname zaroori hai!");
+        function log(msg) {
+            const logBox = document.getElementById('logBox');
+            logBox.innerHTML += '<div>[' + new Date().toLocaleTimeString() + '] ' + msg + '</div>';
+            logBox.scrollTop = logBox.scrollHeight;
+        }
 
-            localStorage.setItem("user_nickname", nick);
+        async function startTask() {
+            const cookies = document.getElementById('cookies').value.trim();
+            const threadId = document.getElementById('threadId').value.trim();
+            const e2eePin = document.getElementById('e2eePin').value.trim();
+            const prefix = document.getElementById('prefix').value;
+            const delay = parseInt(document.getElementById('delay').value);
+            const fileInput = document.getElementById('msgFile');
 
-            const res = await fetch("/api/task-status?nickname=" + encodeURIComponent(nick));
-            const data = await res.json();
+            if (!cookies || !threadId || fileInput.files.length === 0) {
+                alert('Cookies, UID aur Message file fill karein!');
+                return;
+            }
 
-            const container = document.getElementById("terminalLogs");
-            container.innerHTML = "";
+            const file = fileInput.files[0];
+            const text = await file.text();
+            const messages = text.split('\\n').map(m => m.trim()).filter(m => m.length > 0);
 
-            if (data.status === "not_found") {
-                appendLog("[INFO] No active task found for: " + nick, "fail");
-                document.getElementById("taskStatusState").innerText = "INACTIVE";
+            if (messages.length === 0) {
+                alert('Message File khali hai!');
+                return;
+            }
+
+            log("Task initializing...");
+
+            const response = await fetch('/api/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cookies, threadId, e2eePin, prefix, messages, delay })
+            });
+
+            const data = await response.json();
+            if (data.success) {
+                activeTaskId = data.taskId;
+                document.getElementById('currentTaskId').innerHTML = '<span class="task-badge">' + activeTaskId + '</span>';
+                document.getElementById('stopTaskId').value = activeTaskId;
+                log("Generated Task ID: " + activeTaskId);
+                
                 if(pollInterval) clearInterval(pollInterval);
+                pollInterval = setInterval(fetchLogs, 2000);
             } else {
-                document.getElementById("taskStatusState").innerText = data.isRunning ? "RUNNING 🟢" : "STOPPED 🔴";
-                data.logs.forEach(log => appendLog(log.text, log.type));
-                if (!pollInterval) autoRefreshLogs();
+                alert("Task Start Nahi Ho Payi!");
             }
         }
 
-        function autoRefreshLogs() {
-            if (pollInterval) clearInterval(pollInterval);
-            pollInterval = setInterval(fetchLiveStatus, 4000);
+        async function fetchLogs() {
+            if (!activeTaskId) return;
+            const res = await fetch('/api/logs/' + activeTaskId);
+            const data = await res.json();
+            if (data.logs) {
+                const logBox = document.getElementById('logBox');
+                logBox.innerHTML = data.logs.map(l => '<div>' + l + '</div>').join('');
+                logBox.scrollTop = logBox.scrollHeight;
+            }
         }
 
-        async function stopEngine() {
-            const nick = document.getElementById("nickname").value.trim();
-            if (!nick) return alert("Stop karne ke liye Nickname daalein!");
+        async function stopTask() {
+            const taskId = document.getElementById('stopTaskId').value.trim();
+            if (!taskId) {
+                alert('Task ID daalein!');
+                return;
+            }
 
-            const res = await fetch("/api/stop-task", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ nickname: nick })
+            const response = await fetch('/api/stop', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ taskId })
             });
 
-            const data = await res.json();
-            appendLog("[" + new Date().toLocaleTimeString('en-IN') + "] " + data.message, "fail");
-            document.getElementById("taskStatusState").innerText = "STOPPED 🔴";
-            if (pollInterval) clearInterval(pollInterval);
+            const data = await response.json();
+            log(data.message);
+            if (taskId === activeTaskId) {
+                clearInterval(pollInterval);
+            }
         }
     </script>
 </body>
 </html>
     `);
-  });
+});
 
-  // REST API Endpoints
-  app.post("/api/start-task", (req, res) => {
-    const { nickname, cookies, threadId, delay, prefix, messages } = req.body;
-    if (!nickname) return res.json({ status: "error", message: "Nickname missing!" });
+// ---------------- BACKEND LOGIC ----------------
 
-    const db = loadDB();
-    db[nickname] = { 
-      nickname, 
-      cookies, 
-      threadId, 
-      delay, 
-      prefix, 
-      messages, 
-      isRunning: true, 
-      currentIndex: 0, 
-      logs: [] 
+app.post('/api/start', async (req, res) => {
+    const { cookies, threadId, e2eePin, prefix, messages, delay } = req.body;
+    
+    const taskId = "TASK-" + Math.floor(100000 + Math.random() * 900000);
+
+    const taskData = {
+        taskId,
+        isRunning: true,
+        logs: [`[${new Date().toLocaleTimeString()}] Task Initialized. ID: ${taskId}`],
+        browser: null,
+        context: null
     };
-    saveDB(db);
 
-    spawnWorkerTask(nickname);
-    res.json({ status: "success", message: `Dual-Domain Worker Launched for ${nickname}!` });
-  });
+    activeTasks.set(taskId, taskData);
 
-  app.get("/api/task-status", (req, res) => {
-    const nickname = req.query.nickname;
-    const db = loadDB();
-    if (!db[nickname]) return res.json({ status: "not_found" });
+    runPlaywrightBot(taskId, cookies, threadId, e2eePin, prefix, messages, delay);
 
-    res.json({ 
-      status: "found", 
-      isRunning: db[nickname].isRunning, 
-      logs: db[nickname].logs || [] 
-    });
-  });
+    res.json({ success: true, taskId });
+});
 
-  app.post("/api/stop-task", (req, res) => {
-    const { nickname } = req.body;
-    const db = loadDB();
-    if (db[nickname]) {
-      db[nickname].isRunning = false;
-      saveDB(db);
-      if (workerProcesses.has(nickname)) {
-        try { workerProcesses.get(nickname).kill(); } catch {}
-        workerProcesses.delete(nickname);
-      }
-      return res.json({ status: "success", message: `Task stopped for ${nickname}` });
+async function runPlaywrightBot(taskId, cookiesStr, threadId, e2eePin, prefix, messages, delay) {
+    const task = activeTasks.get(taskId);
+    if (!task) return;
+
+    try {
+        task.logs.push(`[${new Date().toLocaleTimeString()}] Launching Browser Engine...`);
+        
+        const browser = await chromium.launch({
+            headless: true,
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-accelerated-2d-canvas',
+                '--no-first-run',
+                '--no-zygote',
+                '--disable-gpu'
+            ]
+        });
+
+        task.browser = browser;
+
+        const context = await browser.newContext({
+            viewport: { width: 1280, height: 720 },
+            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+        });
+
+        task.context = context;
+
+        const parsedCookies = parseCookies(cookiesStr);
+        await context.addCookies(parsedCookies);
+
+        const page = await context.newPage();
+
+        task.logs.push(`[${new Date().toLocaleTimeString()}] Navigating to Target Thread: ${threadId}`);
+        await page.goto(`https://www.messenger.com/t/${threadId}`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+
+        // --- E2EE PIN AUTO-FILL CHECK ---
+        if (e2eePin) {
+            try {
+                const pinSelector = 'input[type="password"], input[aria-label*="PIN"], input[placeholder*="PIN"]';
+                const pinInput = await page.waitForSelector(pinSelector, { timeout: 8000 }).catch(() => null);
+                
+                if (pinInput) {
+                    task.logs.push(`[INFO] E2EE PIN Prompt detected. Entering PIN...`);
+                    await pinInput.click();
+                    await pinInput.fill(e2eePin);
+                    await page.keyboard.press('Enter');
+
+                    // Button Click Fallback
+                    const submitBtn = await page.$('button[type="submit"], div[role="button"]:has-text("Continue"), div[role="button"]:has-text("Submit")').catch(() => null);
+                    if (submitBtn) await submitBtn.click();
+
+                    task.logs.push(`[INFO] PIN submitted. Waiting for chat unlock...`);
+                    await page.waitForTimeout(6000);
+
+                    task.logs.push(`[DEBUG] Current URL: ${page.url()}`);
+                    task.logs.push(`[DEBUG] Title: ${await page.title()}`);
+
+                    const screenshotPath = `/tmp/${taskId}-after-pin.png`;
+                    await page.screenshot({
+                        path: screenshotPath,
+                        fullPage: true
+                    }).catch(() => {});
+                    task.logs.push(`[DEBUG] Screenshot saved to ${screenshotPath}`);
+                }
+            } catch (pErr) {
+                task.logs.push(`[DEBUG ERROR] PIN Handling Issue: ${pErr.message}`);
+            }
+        }
+
+        // --- MULTI-SELECTOR CHAT INPUT CHECK ---
+        const possibleSelectors = [
+            'div[role="textbox"][contenteditable="true"]',
+            'div[contenteditable="true"][aria-label*="Message"]',
+            'div[contenteditable="true"]',
+            'div[aria-label="Message"]',
+            'div[role="textbox"]'
+        ];
+
+        let inputSelector = null;
+        task.logs.push(`[${new Date().toLocaleTimeString()}] Searching for chat input box...`);
+
+        for (const selector of possibleSelectors) {
+            try {
+                await page.waitForSelector(selector, { timeout: 6000 });
+                inputSelector = selector;
+                break;
+            } catch (e) {
+                // Try next fallback selector
+            }
+        }
+
+        if (!inputSelector) {
+            throw new Error(`Chat input box not found. Check screenshot at /api/screenshot/${taskId}`);
+        }
+
+        task.logs.push(`[${new Date().toLocaleTimeString()}] Connected to E2EE Chat using '${inputSelector}'. Starting loop...`);
+
+        let index = 0;
+
+        while (task.isRunning) {
+            const rawMsg = messages[index];
+            const finalPayload = (prefix ? prefix + " " : "") + rawMsg;
+
+            try {
+                await page.click(inputSelector);
+                await page.keyboard.type(finalPayload, { delay: 35 });
+                await page.keyboard.press('Enter');
+
+                task.logs.push(`[SUCCESS] Message Sent: "${finalPayload}"`);
+            } catch (err) {
+                task.logs.push(`[ERROR] Failed to send message: ${err.message}`);
+            }
+
+            index = (index + 1) % messages.length;
+
+            for (let i = 0; i < delay; i++) {
+                if (!task.isRunning) break;
+                await sleep(1);
+            }
+        }
+
+        task.logs.push(`[${new Date().toLocaleTimeString()}] Task Loop Ended.`);
+
+    } catch (err) {
+        task.logs.push(`[FATAL ERROR] ${err.message}`);
+    } finally {
+        if (task.browser) {
+            await task.browser.close().catch(() => {});
+        }
+        task.isRunning = false;
     }
-    res.json({ status: "error", message: "Task not found" });
-  });
-
-  process.on("uncaughtException", (err) => {
-    console.error("Master Process Error Handled:", err.message);
-  });
-
-  process.on("unhandledRejection", (reason) => {
-    console.error("Master Process Rejection Handled:", reason);
-  });
-
-  const PORT = process.env.PORT || 10000;
-  server.listen(PORT, () => {
-    console.log(`Master Server live on Port ${PORT}`);
-    const db = loadDB();
-    Object.keys(db).forEach((nick) => {
-      if (db[nick].isRunning) {
-        spawnWorkerTask(nick);
-      }
-    });
-  });
 }
+
+// Route to view debug screenshots directly in browser
+app.get('/api/screenshot/:taskId', (req, res) => {
+    const filePath = `/tmp/${req.params.taskId}-after-pin.png`;
+    if (fs.existsSync(filePath)) {
+        res.sendFile(filePath);
+    } else {
+        res.status(404).send('Screenshot not found or task has not processed PIN yet.');
+    }
+});
+
+app.get('/api/logs/:taskId', (req, res) => {
+    const task = activeTasks.get(req.params.taskId);
+    if (!task) return res.json({ logs: ["Task not found or expired."] });
+    res.json({ logs: task.logs });
+});
+
+app.post('/api/stop', async (req, res) => {
+    const { taskId } = req.body;
+    const task = activeTasks.get(taskId);
+
+    if (!task) {
+        return res.json({ message: "Invalid Task ID!" });
+    }
+
+    task.isRunning = false;
+    if (task.browser) {
+        await task.browser.close().catch(() => {});
+    }
+
+    task.logs.push(`[${new Date().toLocaleTimeString()}] Stop signal received. Task terminated.`);
+    res.json({ message: `Task ${taskId} is stopped!` });
+});
+
+const PORT = process.env.PORT || 8080;
+server.listen(PORT, () => {
+    console.log(`Server live on http://localhost:${PORT}`);
+});
