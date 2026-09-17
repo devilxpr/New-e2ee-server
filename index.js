@@ -41,7 +41,7 @@ app.get('/', (req, res) => {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Messenger E2ee TooL</title>
+    <title>Messenger Playwright Auto Tool (With E2EE PIN)</title>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0f0f12; color: #e1e1e6; padding: 20px; margin: 0; }
         .container { max-width: 650px; margin: 0 auto; background: #18181b; padding: 25px; border-radius: 12px; border: 1px solid #27272a; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
@@ -58,7 +58,7 @@ app.get('/', (req, res) => {
 </head>
 <body>
     <div class="container">
-        <h2>Messenger E2EE BoT Paradox</h2>
+        <h2>Messenger E2EE Bot Dashboard</h2>
         
         <form id="botForm">
             <label>Messenger.com Cookie String:</label>
@@ -371,7 +371,7 @@ app.post('/api/stop', async (req, res) => {
     res.json({ message: `Task ${taskId} is stopped!` });
 });
 
-const PORT = process.env.PORT || 10000;
+const PORT = process.env.PORT || 8080;
 server.listen(PORT, () => {
     console.log(`Server live on http://localhost:${PORT}`);
 });
