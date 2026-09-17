@@ -1,7 +1,7 @@
 {
   "name": "e2ee-cyber-engine",
   "version": "1.0.0",
-  "description": "E2EE Messenger Cyber Engine with Dual-Domain Support",
+  "description": "E2EE Cyber Engine",
   "type": "module",
   "main": "index.js",
   "scripts": {
@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "express": "^4.19.2",
-    "fb-messenger-e2ee": "^1.0.0"
+    "fb-messenger-e2ee": "latest"
   },
   "engines": {
     "node": ">=18.0.0"
