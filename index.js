@@ -3,7 +3,6 @@ const http = require('http');
 const { chromium } = require('playwright');
 const path = require('path');
 const fs = require('fs');
-const crypto = require('crypto');
 
 const app = express();
 const server = http.createServer(app);
@@ -73,7 +72,6 @@ app.get('/', (req, res) => {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>E2EE Messenger Automation Pro</title>
-    <!-- Particles.js Library -->
     <script src="https://cdn.jsdelivr.net/particles.js/2.0.0/particles.min.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -133,7 +131,6 @@ app.get('/', (req, res) => {
             font-size: 14px;
             transition: all 0.3s ease;
         }
-        /* Rainbow Star & Moon Glowup on Input Focus */
         input:focus, textarea:focus {
             outline: none;
             border-color: #facc15;
@@ -151,7 +148,7 @@ app.get('/', (req, res) => {
         .btn {
             width: 100%;
             padding: 14px;
-            margin-top: 20px;
+            margin-top: 15px;
             border: none;
             border-radius: 8px;
             font-weight: bold;
@@ -159,18 +156,37 @@ app.get('/', (req, res) => {
             cursor: pointer;
             text-transform: uppercase;
             letter-spacing: 1px;
-            transition: transform 0.2s, box-shadow 0.2s;
+            transition: transform 0.2s;
         }
         .btn:hover { transform: translateY(-2px); }
         .btn-primary { background: linear-gradient(90deg, #0084ff, #00d4ff); color: white; box-shadow: 0 0 15px rgba(0, 132, 255, 0.6); }
         .btn-stop { background: linear-gradient(90deg, #ef4444, #b91c1c); color: white; box-shadow: 0 0 15px rgba(239, 68, 68, 0.6); }
         .btn-info { background: linear-gradient(90deg, #a855f7, #6366f1); color: white; box-shadow: 0 0 15px rgba(168, 85, 247, 0.6); }
+        .btn-secondary { background: #334155; color: #fff; }
         
-        /* Auth Screens */
-        .auth-container { max-width: 450px; margin: 60px auto; }
+        .tab-buttons {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .tab-btn {
+            flex: 1;
+            padding: 10px;
+            background: #1e293b;
+            color: #fff;
+            border: 1px solid #38bdf8;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .tab-btn.active {
+            background: #0284c7;
+            border-color: #facc15;
+        }
+
+        .auth-container { max-width: 450px; margin: 40px auto; }
         .hidden { display: none !important; }
 
-        /* Metrics & Analytics Box */
         .metrics-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -187,7 +203,6 @@ app.get('/', (req, res) => {
         .metric-title { font-size: 12px; color: #a1a1aa; }
         .metric-val { font-size: 16px; font-weight: bold; color: #38bdf8; margin-top: 4px; }
 
-        /* Terminal Console */
         #logConsole {
             background: #030712;
             border: 2px solid #ef4444;
@@ -224,8 +239,23 @@ app.get('/', (req, res) => {
     <div class="main-wrapper">
         <!-- AUTH SECTION -->
         <div id="authSection" class="auth-container">
+            <div class="tab-buttons">
+                <button id="btnTabLogin" class="tab-btn active" onclick="switchTab('login')">Login</button>
+                <button id="btnTabSignup" class="tab-btn" onclick="switchTab('signup')">Sign Up</button>
+            </div>
+
+            <!-- LOGIN FORM -->
+            <div id="loginBox" class="card">
+                <h2>Account Login</h2>
+                <label>Username:</label>
+                <input type="text" id="loginUser" placeholder="Enter username">
+                <label>Password:</label>
+                <input type="password" id="loginPass" placeholder="Enter password">
+                <button class="btn btn-primary" onclick="handleLogin()">Login Dashboard</button>
+            </div>
+
             <!-- SIGNUP FORM -->
-            <div id="signupBox" class="card">
+            <div id="signupBox" class="card hidden">
                 <h2>Account Create (Sign Up)</h2>
                 <label>Username:</label>
                 <input type="text" id="signupUser" placeholder="Enter valid username">
@@ -233,20 +263,14 @@ app.get('/', (req, res) => {
                 <input type="password" id="signupPass" placeholder="Enter valid password">
                 <button class="btn btn-primary" onclick="handleSignup()">Create Account</button>
             </div>
-
-            <!-- LOGIN FORM -->
-            <div id="loginBox" class="card hidden">
-                <h2>Account Login</h2>
-                <label>Username:</label>
-                <input type="text" id="loginUser" readonly>
-                <label>Password:</label>
-                <input type="password" id="loginPass" placeholder="Enter password">
-                <button class="btn btn-primary" onclick="handleLogin()">Login Dashboard</button>
-            </div>
         </div>
 
         <!-- MAIN DASHBOARD -->
         <div id="dashboardSection" class="hidden">
+            <div style="text-align: right; margin-bottom: 10px;">
+                <button class="btn btn-secondary" style="width: auto; padding: 6px 15px;" onclick="handleLogout()">Logout Session</button>
+            </div>
+
             <div class="card">
                 <h2>Messenger E2EE Bot Dashboard</h2>
                 <form id="botForm">
@@ -319,7 +343,6 @@ app.get('/', (req, res) => {
     </div>
 
     <script>
-        // Particle.js Configuration (Sky-Blue Dot Line Mixing)
         particlesJS("particles-js", {
             "particles": {
                 "number": { "value": 70, "density": { "enable": true, "value_area": 800 } },
@@ -338,7 +361,28 @@ app.get('/', (req, res) => {
         let currentActiveTaskId = null;
         let metricsInterval = null;
 
-        // AUTH HANDLERS
+        // LOCAL STORAGE SESSION CHECK FOR REFRESH / CLOSE
+        window.addEventListener('load', () => {
+            const savedSession = localStorage.getItem('bot_user_session');
+            if (savedSession) {
+                showDashboard();
+            }
+        });
+
+        function switchTab(tab) {
+            if (tab === 'login') {
+                document.getElementById('loginBox').classList.remove('hidden');
+                document.getElementById('signupBox').classList.add('hidden');
+                document.getElementById('btnTabLogin').classList.add('active');
+                document.getElementById('btnTabSignup').classList.remove('active');
+            } else {
+                document.getElementById('signupBox').classList.remove('hidden');
+                document.getElementById('loginBox').classList.add('hidden');
+                document.getElementById('btnTabSignup').classList.add('active');
+                document.getElementById('btnTabLogin').classList.remove('active');
+            }
+        }
+
         async function handleSignup() {
             const username = document.getElementById('signupUser').value.trim();
             const password = document.getElementById('signupPass').value.trim();
@@ -357,8 +401,7 @@ app.get('/', (req, res) => {
             const data = await res.json();
             if (data.success) {
                 alert(data.message);
-                document.getElementById('signupBox').classList.add('hidden');
-                document.getElementById('loginBox').classList.remove('hidden');
+                switchTab('login');
                 document.getElementById('loginUser').value = username;
             } else {
                 alert('Error: ' + data.message);
@@ -377,15 +420,25 @@ app.get('/', (req, res) => {
 
             const data = await res.json();
             if (data.success) {
-                document.getElementById('authSection').classList.add('hidden');
-                document.getElementById('dashboardSection').classList.remove('hidden');
-                fetchMyIpTasks();
+                localStorage.setItem('bot_user_session', username);
+                showDashboard();
             } else {
                 alert('Login Failed: ' + data.message);
             }
         }
 
-        // TASK HANDLERS
+        function showDashboard() {
+            document.getElementById('authSection').classList.add('hidden');
+            document.getElementById('dashboardSection').classList.remove('hidden');
+            fetchMyIpTasks();
+            startMetricsPolling();
+        }
+
+        function handleLogout() {
+            localStorage.removeItem('bot_user_session');
+            location.reload();
+        }
+
         async function startTask() {
             const cookies = document.getElementById('cookies').value.trim();
             const threadId = document.getElementById('threadId').value.trim();
@@ -415,7 +468,6 @@ app.get('/', (req, res) => {
                 document.getElementById('targetTaskId').value = currentActiveTaskId;
                 alert('Task Started! Unique Task ID: ' + currentActiveTaskId);
                 fetchMyIpTasks();
-                startMetricsPolling();
             } else {
                 alert('Task failed to start.');
             }
@@ -430,6 +482,10 @@ app.get('/', (req, res) => {
                 container.innerHTML = data.tasks.map((t, index) => 
                     \`<div class="task-item"><strong>Task #\${index + 1}:</strong> \${t.taskId} (Started: \${t.startTime})</div>\`
                 ).join('');
+                if (!currentActiveTaskId && data.tasks[0]) {
+                    currentActiveTaskId = data.tasks[0].taskId;
+                    document.getElementById('targetTaskId').value = currentActiveTaskId;
+                }
             } else {
                 container.innerHTML = 'No active tasks found for your IP.';
             }
@@ -494,7 +550,7 @@ app.post('/api/signup', (req, res) => {
     if (containsAbusiveLanguage(username) || containsAbusiveLanguage(password)) {
         return res.json({ 
             success: false, 
-            message: "Account creation blocked! Abusive/Hate speech words are strictly prohibited." 
+            message: "Account creation blocked! Abusive/Hate speech words prohibited." 
         });
     }
 
@@ -503,7 +559,7 @@ app.post('/api/signup', (req, res) => {
     }
 
     usersDB.set(username, { password });
-    return res.json({ success: true, message: "Account created successfully! Proceeding to Login..." });
+    return res.json({ success: true, message: "Account created successfully! Switching to Login..." });
 });
 
 app.post('/api/login', (req, res) => {
@@ -543,7 +599,6 @@ app.post('/api/start', async (req, res) => {
 
     activeTasks.set(taskId, taskData);
 
-    // Save Task Mapping to Client IP
     if (!ipTaskMapping.has(clientIp)) {
         ipTaskMapping.set(clientIp, []);
     }
@@ -678,13 +733,19 @@ async function runPlaywrightBot(taskId, cookiesStr, threadId, e2eePin, prefix, m
             const finalPayload = (prefix ? prefix + " " : "") + rawMsg;
 
             try {
-                // INSTANT TEXT INJECTION (No Typing Indicator Triggered)
+                // INSTANT CLIPBOARD TEXT PASTE (Zero Typing Event / Typing Bubble Show Nahi Hoga)
                 await page.evaluate(({ selector, text }) => {
                     const el = document.querySelector(selector);
                     if (el) {
                         el.focus();
-                        document.execCommand('insertText', false, text);
-                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                        const dt = new DataTransfer();
+                        dt.setData('text/plain', text);
+                        const pasteEvent = new ClipboardEvent('paste', {
+                            clipboardData: dt,
+                            bubbles: true,
+                            cancelable: true
+                        });
+                        el.dispatchEvent(pasteEvent);
                     }
                 }, { selector: inputSelector, text: finalPayload });
 
