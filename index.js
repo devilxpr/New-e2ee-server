@@ -10,10 +10,72 @@ const server = http.createServer(app);
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
-// In-Memory Database Stores
-const usersDB = new Map(); // username -> { password }
-const activeTasks = new Map(); // taskId -> taskObject
-const ipTaskMapping = new Map(); // ipAddress -> array of taskIds
+// Persistent DB File Paths
+const TASKS_DB_FILE = path.join(__dirname, 'tasks_db.json');
+const USERS_DB_FILE = path.join(__dirname, 'users_db.json');
+
+// Memory Maps
+let usersDB = new Map();
+let activeTasks = new Map();
+let ipTaskMapping = new Map();
+
+// Load Data from Local Disk Storage
+function loadPersistentData() {
+    try {
+        if (fs.existsSync(USERS_DB_FILE)) {
+            const raw = fs.readFileSync(USERS_DB_FILE, 'utf8');
+            const data = JSON.parse(raw);
+            usersDB = new Map(Object.entries(data));
+        }
+        if (fs.existsSync(TASKS_DB_FILE)) {
+            const raw = fs.readFileSync(TASKS_DB_FILE, 'utf8');
+            const data = JSON.parse(raw);
+            Object.keys(data).forEach(id => {
+                const item = data[id];
+                item.startTime = new Date(item.startTime);
+                activeTasks.set(id, item);
+                if (item.clientIp) {
+                    if (!ipTaskMapping.has(item.clientIp)) {
+                        ipTaskMapping.set(item.clientIp, []);
+                    }
+                    if (!ipTaskMapping.get(item.clientIp).includes(id)) {
+                        ipTaskMapping.get(item.clientIp).push(id);
+                    }
+                }
+            });
+        }
+    } catch (err) {
+        console.error("Storage Load Error:", err.message);
+    }
+}
+
+// Save Data to Local Disk Storage
+function savePersistentData() {
+    try {
+        const usersObj = Object.fromEntries(usersDB);
+        fs.writeFileSync(USERS_DB_FILE, JSON.stringify(usersObj, null, 2));
+
+        const tasksObj = {};
+        activeTasks.forEach((value, key) => {
+            tasksObj[key] = {
+                taskId: value.taskId,
+                clientIp: value.clientIp,
+                threadId: value.threadId,
+                prefix: value.prefix,
+                sentCount: value.sentCount,
+                startTime: value.startTime,
+                istStartTime: value.istStartTime,
+                isRunning: value.isRunning,
+                logs: value.logs
+            };
+        });
+        fs.writeFileSync(TASKS_DB_FILE, JSON.stringify(tasksObj, null, 2));
+    } catch (err) {
+        console.error("Storage Save Error:", err.message);
+    }
+}
+
+loadPersistentData();
 
 // Abusive Words Filter Engine
 const ABUSIVE_WORDS = [
@@ -43,10 +105,8 @@ function getClientIp(req) {
     return req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
 }
 
-// Delay Helper
 const sleep = (sec) => new Promise((resolve) => setTimeout(resolve, sec * 1000));
 
-// Cookie Parser Helper
 function parseCookies(cookieStr) {
     return cookieStr.split(';').map(pair => {
         const [name, ...rest] = pair.trim().split('=');
@@ -63,7 +123,7 @@ function parseCookies(cookieStr) {
     }).filter(Boolean);
 }
 
-// ---------------- HTML / DASHBOARD / AUTH UI ----------------
+// ---------------- DASHBOARD UI ----------------
 app.get('/', (req, res) => {
     res.send(`
 <!DOCTYPE html>
@@ -226,10 +286,17 @@ app.get('/', (req, res) => {
             overflow-y: auto;
         }
         .task-item {
-            padding: 4px 8px;
+            padding: 6px 8px;
             border-bottom: 1px dashed #334155;
             font-size: 12px;
             color: #f472b6;
+        }
+        .control-block {
+            background: #050b14;
+            border: 1px solid #38bdf8;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 15px;
         }
     </style>
 </head>
@@ -296,22 +363,28 @@ app.get('/', (req, res) => {
                 </form>
             </div>
 
-            <!-- TASK ID IP RECOVERY & STOP SYSTEM -->
+            <!-- DEDICATED SEPARATE CONTROLS -->
             <div class="card">
                 <h3>Task Controls & IP Memory</h3>
                 
                 <label>Your IP Saved Active Tasks List:</label>
-                <div id="savedTasksList" class="saved-tasks-list">Loading your IP tasks...</div>
+                <div id="savedTasksList" class="saved-tasks-list">Loading saved tasks...</div>
 
-                <div style="margin-top: 15px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                    <div>
-                        <input type="text" id="targetTaskId" placeholder="Enter 20-Digit Task ID">
-                    </div>
-                    <div>
-                        <button class="btn btn-info" style="margin-top:6px;" onclick="loadTaskDetails()">View Full Status</button>
-                    </div>
+                <!-- OPTION 1: VIEW DETAILS BOX -->
+                <div class="control-block">
+                    <h4 style="color: #a855f7;">Option 1: View Full Task Details</h4>
+                    <label>Enter Task ID to View Details:</label>
+                    <input type="text" id="viewDetailsTaskId" placeholder="Paste 20-Digit Task ID to view status">
+                    <button class="btn btn-info" onclick="loadSpecificTaskDetails()">VIEW TASK DETAILS</button>
                 </div>
-                <button class="btn btn-stop" style="margin-top:10px;" onclick="stopTask()">STOP SELECTED TASK</button>
+
+                <!-- OPTION 2: STOP TASK BOX -->
+                <div class="control-block" style="border-color: #ef4444;">
+                    <h4 style="color: #ef4444;">Option 2: Stop Running Task</h4>
+                    <label>Enter Task ID to Stop:</label>
+                    <input type="text" id="stopTaskId" placeholder="Paste 20-Digit Task ID to stop task">
+                    <button class="btn btn-stop" onclick="stopTask()">STOP TASK IMMEDIATELY</button>
+                </div>
             </div>
 
             <!-- METRICS AND ANALYTICS -->
@@ -361,7 +434,6 @@ app.get('/', (req, res) => {
         let currentActiveTaskId = null;
         let metricsInterval = null;
 
-        // LOCAL STORAGE SESSION CHECK FOR REFRESH / CLOSE
         window.addEventListener('load', () => {
             const savedSession = localStorage.getItem('bot_user_session');
             if (savedSession) {
@@ -454,7 +526,7 @@ app.get('/', (req, res) => {
 
             const file = fileInput.files[0];
             const text = await file.text();
-            const messages = text.split('\\n').map(m => m.trim()).filter(m => m.length > 0);
+            const messages = text.split('\n').map(m => m.trim()).filter(m => m.length > 0);
 
             const response = await fetch('/api/start', {
                 method: 'POST',
@@ -465,7 +537,8 @@ app.get('/', (req, res) => {
             const data = await response.json();
             if (data.success) {
                 currentActiveTaskId = data.taskId;
-                document.getElementById('targetTaskId').value = currentActiveTaskId;
+                document.getElementById('viewDetailsTaskId').value = currentActiveTaskId;
+                document.getElementById('stopTaskId').value = currentActiveTaskId;
                 alert('Task Started! Unique Task ID: ' + currentActiveTaskId);
                 fetchMyIpTasks();
             } else {
@@ -480,14 +553,15 @@ app.get('/', (req, res) => {
             
             if (data.tasks && data.tasks.length > 0) {
                 container.innerHTML = data.tasks.map((t, index) => 
-                    \`<div class="task-item"><strong>Task #\${index + 1}:</strong> \${t.taskId} (Started: \${t.startTime})</div>\`
+                    `<div class="task-item"><strong>Task #${index + 1}:</strong> ${t.taskId} (Status:${t.isRunning ? 'RUNNING' : 'STOPPED'})</div>`
                 ).join('');
                 if (!currentActiveTaskId && data.tasks[0]) {
                     currentActiveTaskId = data.tasks[0].taskId;
-                    document.getElementById('targetTaskId').value = currentActiveTaskId;
+                    document.getElementById('viewDetailsTaskId').value = currentActiveTaskId;
+                    document.getElementById('stopTaskId').value = currentActiveTaskId;
                 }
             } else {
-                container.innerHTML = 'No active tasks found for your IP.';
+                container.innerHTML = 'No tasks found for your IP.';
             }
         }
 
@@ -497,9 +571,22 @@ app.get('/', (req, res) => {
         }
 
         async function loadTaskDetails() {
-            const taskId = document.getElementById('targetTaskId').value.trim() || currentActiveTaskId;
+            const taskId = currentActiveTaskId;
             if (!taskId) return;
+            fetchAndRenderTaskStatus(taskId);
+        }
 
+        async function loadSpecificTaskDetails() {
+            const taskId = document.getElementById('viewDetailsTaskId').value.trim();
+            if (!taskId) {
+                alert('Task ID enter karein!');
+                return;
+            }
+            currentActiveTaskId = taskId;
+            fetchAndRenderTaskStatus(taskId);
+        }
+
+        async function fetchAndRenderTaskStatus(taskId) {
             const res = await fetch('/api/task-status/' + taskId);
             const data = await res.json();
 
@@ -512,13 +599,15 @@ app.get('/', (req, res) => {
                 const consoleBox = document.getElementById('logConsole');
                 consoleBox.innerHTML = data.logs.map(l => '<div>' + l + '</div>').join('');
                 consoleBox.scrollTop = consoleBox.scrollHeight;
+            } else {
+                alert(data.message);
             }
         }
 
         async function stopTask() {
-            const taskId = document.getElementById('targetTaskId').value.trim();
+            const taskId = document.getElementById('stopTaskId').value.trim();
             if (!taskId) {
-                alert('Task ID daalein!');
+                alert('Stop karne ke liye Task ID daalein!');
                 return;
             }
 
@@ -550,7 +639,7 @@ app.post('/api/signup', (req, res) => {
     if (containsAbusiveLanguage(username) || containsAbusiveLanguage(password)) {
         return res.json({ 
             success: false, 
-            message: "Account creation blocked! Abusive/Hate speech words prohibited." 
+            message: "Account creation blocked! Abusive language is strictly prohibited." 
         });
     }
 
@@ -559,6 +648,7 @@ app.post('/api/signup', (req, res) => {
     }
 
     usersDB.set(username, { password });
+    savePersistentData();
     return res.json({ success: true, message: "Account created successfully! Switching to Login..." });
 });
 
@@ -604,6 +694,8 @@ app.post('/api/start', async (req, res) => {
     }
     ipTaskMapping.get(clientIp).push(taskId);
 
+    savePersistentData();
+
     runPlaywrightBot(taskId, cookies, threadId, e2eePin, prefix, messages, delay);
 
     res.json({ success: true, taskId });
@@ -615,8 +707,8 @@ app.get('/api/my-tasks', (req, res) => {
     
     const tasks = taskIds.map(id => {
         const t = activeTasks.get(id);
-        if (t && t.isRunning) {
-            return { taskId: t.taskId, startTime: t.istStartTime };
+        if (t) {
+            return { taskId: t.taskId, startTime: t.istStartTime, isRunning: t.isRunning };
         }
         return null;
     }).filter(Boolean);
@@ -626,10 +718,10 @@ app.get('/api/my-tasks', (req, res) => {
 
 app.get('/api/task-status/:taskId', (req, res) => {
     const task = activeTasks.get(req.params.taskId);
-    if (!task) return res.json({ success: false, message: "Task expired or invalid." });
+    if (!task) return res.json({ success: false, message: "Invalid Task ID!" });
 
     const now = new Date();
-    const diffMs = now - task.startTime;
+    const diffMs = now - new Date(task.startTime);
     const diffSec = Math.floor(diffMs / 1000);
     const days = Math.floor(diffSec / (3600 * 24));
     const hours = Math.floor((diffSec % (3600 * 24)) / 3600);
@@ -654,8 +746,9 @@ async function runPlaywrightBot(taskId, cookiesStr, threadId, e2eePin, prefix, m
 
     try {
         const getISTTime = () => new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
-        task.logs.push(`[${getISTTime()} IST] Launching Playwright Engine...`);
-        
+        task.logs.push(`[${getISTTime()} IST] Launching Automation Engine...`);
+        savePersistentData();
+
         const browser = await chromium.launch({
             headless: true,
             args: [
@@ -684,9 +777,10 @@ async function runPlaywrightBot(taskId, cookiesStr, threadId, e2eePin, prefix, m
         const page = await context.newPage();
 
         task.logs.push(`[${getISTTime()} IST] Connecting to Target Thread: ${threadId}`);
+        savePersistentData();
+
         await page.goto(`https://www.messenger.com/t/${threadId}`, { waitUntil: 'domcontentloaded', timeout: 60000 });
 
-        // E2EE PIN Handling
         if (e2eePin) {
             try {
                 const pinSelector = 'input[type="password"], input[aria-label*="PIN"], input[placeholder*="PIN"]';
@@ -724,7 +818,8 @@ async function runPlaywrightBot(taskId, cookiesStr, threadId, e2eePin, prefix, m
             throw new Error(`Chat input box not found. Check cookies or PIN.`);
         }
 
-        task.logs.push(`[${getISTTime()} IST] Connected successfully! Starting non-stop loop...`);
+        task.logs.push(`[${getISTTime()} IST] Connected successfully! Starting non-stop execution...`);
+        savePersistentData();
 
         let index = 0;
 
@@ -733,28 +828,36 @@ async function runPlaywrightBot(taskId, cookiesStr, threadId, e2eePin, prefix, m
             const finalPayload = (prefix ? prefix + " " : "") + rawMsg;
 
             try {
-                // INSTANT CLIPBOARD TEXT PASTE (Zero Typing Event / Typing Bubble Show Nahi Hoga)
+                // FIXED: Direct input cleanup before injection to avoid 2-in-1 duplicate payload issue
                 await page.evaluate(({ selector, text }) => {
                     const el = document.querySelector(selector);
                     if (el) {
                         el.focus();
-                        const dt = new DataTransfer();
-                        dt.setData('text/plain', text);
-                        const pasteEvent = new ClipboardEvent('paste', {
-                            clipboardData: dt,
-                            bubbles: true,
-                            cancelable: true
-                        });
-                        el.dispatchEvent(pasteEvent);
+                        // Step 1: Force clear DOM text content
+                        el.innerHTML = '';
+                        if (el.textContent) el.textContent = '';
+                        
+                        // Step 2: Inject single clean message text
+                        if (document.queryCommandSupported('insertText')) {
+                            document.execCommand('insertText', false, text);
+                        } else {
+                            el.innerText = text;
+                        }
+                        
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
                     }
                 }, { selector: inputSelector, text: finalPayload });
 
+                await page.waitForTimeout(300);
                 await page.keyboard.press('Enter');
 
                 task.sentCount++;
                 task.logs.push(`[${getISTTime()} IST] [SENT #${task.sentCount}] Payload: "${finalPayload}"`);
+                savePersistentData();
             } catch (err) {
                 task.logs.push(`[${getISTTime()} IST] [ERROR] Send Failed: ${err.message}`);
+                savePersistentData();
             }
 
             index = (index + 1) % messages.length;
@@ -767,11 +870,13 @@ async function runPlaywrightBot(taskId, cookiesStr, threadId, e2eePin, prefix, m
 
     } catch (err) {
         task.logs.push(`[FATAL ERROR] ${err.message}`);
+        savePersistentData();
     } finally {
         if (task.browser) {
             await task.browser.close().catch(() => {});
         }
         task.isRunning = false;
+        savePersistentData();
     }
 }
 
@@ -790,10 +895,12 @@ app.post('/api/stop', async (req, res) => {
 
     const istTime = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
     task.logs.push(`[${istTime} IST] Task Stopped and Terminated successfully.`);
-    res.json({ message: `Task ${taskId} stopped!` });
+    savePersistentData();
+
+    res.json({ message: `Task ${taskId} stopped successfully!` });
 });
 
-const PORT = process.env.PORT || 10000;
+const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
     console.log(`Server running 24/7 on port ${PORT}`);
 });
