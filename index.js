@@ -19,7 +19,7 @@ let usersDB = new Map();
 let activeTasks = new Map();
 let ipTaskMapping = new Map();
 
-// Load Data from Local Disk Storage
+// Load Data from Disk
 function loadPersistentData() {
     try {
         if (fs.existsSync(USERS_DB_FILE)) {
@@ -49,7 +49,7 @@ function loadPersistentData() {
     }
 }
 
-// Save Data to Local Disk Storage
+// Save Data to Disk
 function savePersistentData() {
     try {
         const usersObj = Object.fromEntries(usersDB);
@@ -125,8 +125,7 @@ function parseCookies(cookieStr) {
 
 // ---------------- DASHBOARD UI ----------------
 app.get('/', (req, res) => {
-    res.send(`
-<!DOCTYPE html>
+    res.send(`<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -224,94 +223,48 @@ app.get('/', (req, res) => {
         .btn-info { background: linear-gradient(90deg, #a855f7, #6366f1); color: white; box-shadow: 0 0 15px rgba(168, 85, 247, 0.6); }
         .btn-secondary { background: #334155; color: #fff; }
         
-        .tab-buttons {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-        }
+        .tab-buttons { display: flex; gap: 10px; margin-bottom: 20px; }
         .tab-btn {
-            flex: 1;
-            padding: 10px;
-            background: #1e293b;
-            color: #fff;
-            border: 1px solid #38bdf8;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: bold;
+            flex: 1; padding: 10px; background: #1e293b; color: #fff;
+            border: 1px solid #38bdf8; border-radius: 8px; cursor: pointer; font-weight: bold;
         }
-        .tab-btn.active {
-            background: #0284c7;
-            border-color: #facc15;
-        }
-
+        .tab-btn.active { background: #0284c7; border-color: #facc15; }
         .auth-container { max-width: 450px; margin: 40px auto; }
         .hidden { display: none !important; }
 
         .metrics-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-            gap: 12px;
-            margin-top: 15px;
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px; margin-top: 15px;
         }
         .metric-card {
-            background: #050b14;
-            border: 1px solid #facc15;
-            padding: 12px;
-            border-radius: 8px;
-            text-align: center;
+            background: #050b14; border: 1px solid #facc15;
+            padding: 12px; border-radius: 8px; text-align: center;
         }
         .metric-title { font-size: 12px; color: #a1a1aa; }
         .metric-val { font-size: 16px; font-weight: bold; color: #38bdf8; margin-top: 4px; }
 
         #logConsole {
-            background: #030712;
-            border: 2px solid #ef4444;
-            border-radius: 10px;
-            padding: 15px;
-            height: 280px;
-            overflow-y: auto;
-            font-family: 'Courier New', Courier, monospace;
-            font-size: 13px;
-            color: #4ade80;
-            box-shadow: inset 0 0 10px rgba(0,0,0,0.8);
-            margin-top: 10px;
+            background: #030712; border: 2px solid #ef4444; border-radius: 10px;
+            padding: 15px; height: 280px; overflow-y: auto;
+            font-family: 'Courier New', Courier, monospace; font-size: 13px;
+            color: #4ade80; box-shadow: inset 0 0 10px rgba(0,0,0,0.8); margin-top: 10px;
         }
         .saved-tasks-list {
-            margin-top: 10px;
-            background: #090d16;
-            border: 1px solid #38bdf8;
-            padding: 10px;
-            border-radius: 8px;
-            max-height: 120px;
-            overflow-y: auto;
+            margin-top: 10px; background: #090d16; border: 1px solid #38bdf8;
+            padding: 10px; border-radius: 8px; max-height: 120px; overflow-y: auto;
         }
-        .task-item {
-            padding: 6px 8px;
-            border-bottom: 1px dashed #334155;
-            font-size: 12px;
-            color: #f472b6;
-        }
-        .control-block {
-            background: #050b14;
-            border: 1px solid #38bdf8;
-            padding: 15px;
-            border-radius: 10px;
-            margin-top: 15px;
-        }
+        .task-item { padding: 6px 8px; border-bottom: 1px dashed #334155; font-size: 12px; color: #f472b6; }
+        .control-block { background: #050b14; border: 1px solid #38bdf8; padding: 15px; border-radius: 10px; margin-top: 15px; }
     </style>
 </head>
 <body>
     <div id="particles-js"></div>
-
     <div class="main-wrapper">
-        <!-- AUTH SECTION -->
         <div id="authSection" class="auth-container">
             <div class="tab-buttons">
                 <button id="btnTabLogin" class="tab-btn active" onclick="switchTab('login')">Login</button>
                 <button id="btnTabSignup" class="tab-btn" onclick="switchTab('signup')">Sign Up</button>
             </div>
-
-            <!-- LOGIN FORM -->
             <div id="loginBox" class="card">
                 <h2>Account Login</h2>
                 <label>Username:</label>
@@ -320,8 +273,6 @@ app.get('/', (req, res) => {
                 <input type="password" id="loginPass" placeholder="Enter password">
                 <button class="btn btn-primary" onclick="handleLogin()">Login Dashboard</button>
             </div>
-
-            <!-- SIGNUP FORM -->
             <div id="signupBox" class="card hidden">
                 <h2>Account Create (Sign Up)</h2>
                 <label>Username:</label>
@@ -332,53 +283,39 @@ app.get('/', (req, res) => {
             </div>
         </div>
 
-        <!-- MAIN DASHBOARD -->
         <div id="dashboardSection" class="hidden">
             <div style="text-align: right; margin-bottom: 10px;">
                 <button class="btn btn-secondary" style="width: auto; padding: 6px 15px;" onclick="handleLogout()">Logout Session</button>
             </div>
-
             <div class="card">
                 <h2>Messenger E2EE Bot Dashboard</h2>
                 <form id="botForm">
                     <label>Messenger.com Cookie String:</label>
                     <textarea id="cookies" placeholder="c_user=...; xs=...; datr=...;" required></textarea>
-
                     <label>Target UID / Thread ID:</label>
                     <input type="text" id="threadId" placeholder="e.g. 1000XXXXXXXXX or Group ID" required>
-
                     <label>E2EE 6-Digit PIN (Optional):</label>
                     <input type="password" id="e2eePin" placeholder="e.g. 123456">
-
                     <label>Message Prefix (Optional):</label>
                     <input type="text" id="prefix" placeholder="e.g. [DevilX]">
-
                     <label>Messages (.txt File Select):</label>
                     <input type="file" id="msgFile" accept=".txt" required>
-
                     <label>Delay (Seconds):</label>
                     <input type="number" id="delay" value="30" min="5" required>
-
                     <button type="button" class="btn btn-primary" onclick="startTask()">START NON-STOP TASK</button>
                 </form>
             </div>
 
-            <!-- DEDICATED SEPARATE CONTROLS -->
             <div class="card">
                 <h3>Task Controls & IP Memory</h3>
-                
                 <label>Your IP Saved Active Tasks List:</label>
                 <div id="savedTasksList" class="saved-tasks-list">Loading saved tasks...</div>
-
-                <!-- OPTION 1: VIEW DETAILS BOX -->
                 <div class="control-block">
                     <h4 style="color: #a855f7;">Option 1: View Full Task Details</h4>
                     <label>Enter Task ID to View Details:</label>
                     <input type="text" id="viewDetailsTaskId" placeholder="Paste 20-Digit Task ID to view status">
                     <button class="btn btn-info" onclick="loadSpecificTaskDetails()">VIEW TASK DETAILS</button>
                 </div>
-
-                <!-- OPTION 2: STOP TASK BOX -->
                 <div class="control-block" style="border-color: #ef4444;">
                     <h4 style="color: #ef4444;">Option 2: Stop Running Task</h4>
                     <label>Enter Task ID to Stop:</label>
@@ -387,7 +324,6 @@ app.get('/', (req, res) => {
                 </div>
             </div>
 
-            <!-- METRICS AND ANALYTICS -->
             <div class="card">
                 <h3>Live Task Metrics & Analytics</h3>
                 <div class="metrics-grid">
@@ -408,7 +344,6 @@ app.get('/', (req, res) => {
                         <div class="metric-val" id="metThread">-</div>
                     </div>
                 </div>
-
                 <label style="margin-top:20px;">Live Terminal Console Logs (India IST Time):</label>
                 <div id="logConsole">System Initialized. Awaiting Task...</div>
             </div>
@@ -426,9 +361,7 @@ app.get('/', (req, res) => {
                 "line_linked": { "enable": true, "distance": 140, "color": "#0284c7", "opacity": 0.5, "width": 1.2 },
                 "move": { "enable": true, "speed": 2.5, "direction": "none", "out_mode": "out" }
             },
-            "interactivity": {
-                "events": { "onhover": { "enable": true, "mode": "grab" } }
-            }
+            "interactivity": { "events": { "onhover": { "enable": true, "mode": "grab" } } }
         });
 
         let currentActiveTaskId = null;
@@ -436,9 +369,7 @@ app.get('/', (req, res) => {
 
         window.addEventListener('load', () => {
             const savedSession = localStorage.getItem('bot_user_session');
-            if (savedSession) {
-                showDashboard();
-            }
+            if (savedSession) { showDashboard(); }
         });
 
         function switchTab(tab) {
@@ -458,18 +389,12 @@ app.get('/', (req, res) => {
         async function handleSignup() {
             const username = document.getElementById('signupUser').value.trim();
             const password = document.getElementById('signupPass').value.trim();
-
-            if (!username || !password) {
-                alert('Username aur Password bharna zaruri hai!');
-                return;
-            }
-
+            if (!username || !password) return alert('Username aur Password bharna zaruri hai!');
             const res = await fetch('/api/signup', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username, password })
             });
-
             const data = await res.json();
             if (data.success) {
                 alert(data.message);
@@ -483,13 +408,11 @@ app.get('/', (req, res) => {
         async function handleLogin() {
             const username = document.getElementById('loginUser').value.trim();
             const password = document.getElementById('loginPass').value.trim();
-
             const res = await fetch('/api/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username, password })
             });
-
             const data = await res.json();
             if (data.success) {
                 localStorage.setItem('bot_user_session', username);
@@ -520,8 +443,7 @@ app.get('/', (req, res) => {
             const fileInput = document.getElementById('msgFile');
 
             if (!cookies || !threadId || fileInput.files.length === 0) {
-                alert('Sabhi fields aur Message file select karein!');
-                return;
+                return alert('Sabhi fields aur Message file select karein!');
             }
 
             const file = fileInput.files[0];
@@ -550,10 +472,9 @@ app.get('/', (req, res) => {
             const res = await fetch('/api/my-tasks');
             const data = await res.json();
             const container = document.getElementById('savedTasksList');
-            
             if (data.tasks && data.tasks.length > 0) {
                 container.innerHTML = data.tasks.map((t, index) => 
-                    `<div class="task-item"><strong>Task #${index + 1}:</strong> ${t.taskId} (Status:${t.isRunning ? 'RUNNING' : 'STOPPED'})</div>`
+                    '<div class="task-item"><strong>Task #' + (index + 1) + ':</strong> ' + t.taskId + ' (Status: ' + (t.isRunning ? 'RUNNING' : 'STOPPED') + ')</div>'
                 ).join('');
                 if (!currentActiveTaskId && data.tasks[0]) {
                     currentActiveTaskId = data.tasks[0].taskId;
@@ -571,17 +492,13 @@ app.get('/', (req, res) => {
         }
 
         async function loadTaskDetails() {
-            const taskId = currentActiveTaskId;
-            if (!taskId) return;
-            fetchAndRenderTaskStatus(taskId);
+            if (!currentActiveTaskId) return;
+            fetchAndRenderTaskStatus(currentActiveTaskId);
         }
 
         async function loadSpecificTaskDetails() {
             const taskId = document.getElementById('viewDetailsTaskId').value.trim();
-            if (!taskId) {
-                alert('Task ID enter karein!');
-                return;
-            }
+            if (!taskId) return alert('Task ID enter karein!');
             currentActiveTaskId = taskId;
             fetchAndRenderTaskStatus(taskId);
         }
@@ -589,7 +506,6 @@ app.get('/', (req, res) => {
         async function fetchAndRenderTaskStatus(taskId) {
             const res = await fetch('/api/task-status/' + taskId);
             const data = await res.json();
-
             if (data.success) {
                 document.getElementById('metTaskId').innerText = data.taskId;
                 document.getElementById('metSent').innerText = data.sentCount;
@@ -606,10 +522,7 @@ app.get('/', (req, res) => {
 
         async function stopTask() {
             const taskId = document.getElementById('stopTaskId').value.trim();
-            if (!taskId) {
-                alert('Stop karne ke liye Task ID daalein!');
-                return;
-            }
+            if (!taskId) return alert('Stop karne ke liye Task ID daalein!');
 
             const res = await fetch('/api/stop', {
                 method: 'POST',
@@ -623,47 +536,32 @@ app.get('/', (req, res) => {
         }
     </script>
 </body>
-</html>
-    `);
+</html>`);
 });
 
-// ---------------- AUTH API ROUTES ----------------
+// ---------------- API ROUTES ----------------
 
 app.post('/api/signup', (req, res) => {
     const { username, password } = req.body;
-
-    if (!username || !password) {
-        return res.json({ success: false, message: "Username and Password required!" });
-    }
-
+    if (!username || !password) return res.json({ success: false, message: "Username and Password required!" });
     if (containsAbusiveLanguage(username) || containsAbusiveLanguage(password)) {
-        return res.json({ 
-            success: false, 
-            message: "Account creation blocked! Abusive language is strictly prohibited." 
-        });
+        return res.json({ success: false, message: "Account creation blocked! Abusive language is strictly prohibited." });
     }
-
-    if (usersDB.has(username)) {
-        return res.json({ success: false, message: "Username already exists! Choose another." });
-    }
+    if (usersDB.has(username)) return res.json({ success: false, message: "Username already exists!" });
 
     usersDB.set(username, { password });
     savePersistentData();
-    return res.json({ success: true, message: "Account created successfully! Switching to Login..." });
+    return res.json({ success: true, message: "Account created successfully!" });
 });
 
 app.post('/api/login', (req, res) => {
     const { username, password } = req.body;
-
     const user = usersDB.get(username);
     if (!user || user.password !== password) {
         return res.json({ success: false, message: "Invalid Username or Password!" });
     }
-
     return res.json({ success: true, message: "Login successful!" });
 });
-
-// ---------------- BACKEND AUTOMATION ENGINE ----------------
 
 app.post('/api/start', async (req, res) => {
     const { cookies, threadId, e2eePin, prefix, messages, delay } = req.body;
@@ -674,28 +572,17 @@ app.post('/api/start', async (req, res) => {
     const istStartTime = startTimeDate.toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
 
     const taskData = {
-        taskId,
-        clientIp,
-        threadId,
-        prefix,
-        sentCount: 0,
-        startTime: startTimeDate,
-        istStartTime,
-        isRunning: true,
+        taskId, clientIp, threadId, prefix, sentCount: 0,
+        startTime: startTimeDate, istStartTime, isRunning: true,
         logs: [`[${istStartTime} IST] Initializing Non-Stop Task ID: ${taskId}`],
-        browser: null,
-        context: null
+        browser: null, context: null
     };
 
     activeTasks.set(taskId, taskData);
-
-    if (!ipTaskMapping.has(clientIp)) {
-        ipTaskMapping.set(clientIp, []);
-    }
+    if (!ipTaskMapping.has(clientIp)) ipTaskMapping.set(clientIp, []);
     ipTaskMapping.get(clientIp).push(taskId);
 
     savePersistentData();
-
     runPlaywrightBot(taskId, cookies, threadId, e2eePin, prefix, messages, delay);
 
     res.json({ success: true, taskId });
@@ -704,15 +591,10 @@ app.post('/api/start', async (req, res) => {
 app.get('/api/my-tasks', (req, res) => {
     const clientIp = getClientIp(req);
     const taskIds = ipTaskMapping.get(clientIp) || [];
-    
     const tasks = taskIds.map(id => {
         const t = activeTasks.get(id);
-        if (t) {
-            return { taskId: t.taskId, startTime: t.istStartTime, isRunning: t.isRunning };
-        }
-        return null;
+        return t ? { taskId: t.taskId, startTime: t.istStartTime, isRunning: t.isRunning } : null;
     }).filter(Boolean);
-
     res.json({ tasks });
 });
 
@@ -728,13 +610,11 @@ app.get('/api/task-status/:taskId', (req, res) => {
     const mins = Math.floor((diffSec % 3600) / 60);
     const secs = diffSec % 60;
 
-    const uptimeStr = `${days}d ${hours}h ${mins}m ${secs}s`;
-
     res.json({
         success: true,
         taskId: task.taskId,
         sentCount: task.sentCount,
-        uptime: uptimeStr,
+        uptime: `${days}d ${hours}h ${mins}m ${secs}s`,
         threadId: task.threadId,
         logs: task.logs
     });
@@ -751,29 +631,17 @@ async function runPlaywrightBot(taskId, cookiesStr, threadId, e2eePin, prefix, m
 
         const browser = await chromium.launch({
             headless: true,
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-accelerated-2d-canvas',
-                '--no-first-run',
-                '--no-zygote',
-                '--disable-gpu'
-            ]
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
         });
 
         task.browser = browser;
-
         const context = await browser.newContext({
             viewport: { width: 1280, height: 720 },
             userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
         });
 
         task.context = context;
-
-        const parsedCookies = parseCookies(cookiesStr);
-        await context.addCookies(parsedCookies);
-
+        await context.addCookies(parseCookies(cookiesStr));
         const page = await context.newPage();
 
         task.logs.push(`[${getISTTime()} IST] Connecting to Target Thread: ${threadId}`);
@@ -785,17 +653,13 @@ async function runPlaywrightBot(taskId, cookiesStr, threadId, e2eePin, prefix, m
             try {
                 const pinSelector = 'input[type="password"], input[aria-label*="PIN"], input[placeholder*="PIN"]';
                 const pinInput = await page.waitForSelector(pinSelector, { timeout: 8000 }).catch(() => null);
-                
                 if (pinInput) {
-                    task.logs.push(`[${getISTTime()} IST] E2EE PIN Prompt detected. Unlocking...`);
                     await pinInput.click();
                     await pinInput.fill(e2eePin);
                     await page.keyboard.press('Enter');
                     await page.waitForTimeout(5000);
                 }
-            } catch (pErr) {
-                task.logs.push(`[DEBUG ERROR] PIN Handling Issue: ${pErr.message}`);
-            }
+            } catch (pErr) {}
         }
 
         const possibleSelectors = [
@@ -814,36 +678,28 @@ async function runPlaywrightBot(taskId, cookiesStr, threadId, e2eePin, prefix, m
             } catch (e) {}
         }
 
-        if (!inputSelector) {
-            throw new Error(`Chat input box not found. Check cookies or PIN.`);
-        }
+        if (!inputSelector) throw new Error("Chat input box not found. Check cookies or PIN.");
 
-        task.logs.push(`[${getISTTime()} IST] Connected successfully! Starting non-stop execution...`);
+        task.logs.push(`[${getISTTime()} IST] Connected successfully! Starting execution...`);
         savePersistentData();
 
         let index = 0;
-
         while (task.isRunning) {
             const rawMsg = messages[index];
             const finalPayload = (prefix ? prefix + " " : "") + rawMsg;
 
             try {
-                // FIXED: Direct input cleanup before injection to avoid 2-in-1 duplicate payload issue
                 await page.evaluate(({ selector, text }) => {
                     const el = document.querySelector(selector);
                     if (el) {
                         el.focus();
-                        // Step 1: Force clear DOM text content
                         el.innerHTML = '';
                         if (el.textContent) el.textContent = '';
-                        
-                        // Step 2: Inject single clean message text
                         if (document.queryCommandSupported('insertText')) {
                             document.execCommand('insertText', false, text);
                         } else {
                             el.innerText = text;
                         }
-                        
                         el.dispatchEvent(new Event('input', { bubbles: true }));
                         el.dispatchEvent(new Event('change', { bubbles: true }));
                     }
@@ -861,20 +717,16 @@ async function runPlaywrightBot(taskId, cookiesStr, threadId, e2eePin, prefix, m
             }
 
             index = (index + 1) % messages.length;
-
             for (let i = 0; i < delay; i++) {
                 if (!task.isRunning) break;
                 await sleep(1);
             }
         }
-
     } catch (err) {
         task.logs.push(`[FATAL ERROR] ${err.message}`);
         savePersistentData();
     } finally {
-        if (task.browser) {
-            await task.browser.close().catch(() => {});
-        }
+        if (task.browser) await task.browser.close().catch(() => {});
         task.isRunning = false;
         savePersistentData();
     }
@@ -883,15 +735,10 @@ async function runPlaywrightBot(taskId, cookiesStr, threadId, e2eePin, prefix, m
 app.post('/api/stop', async (req, res) => {
     const { taskId } = req.body;
     const task = activeTasks.get(taskId);
-
-    if (!task) {
-        return res.json({ message: "Invalid Task ID!" });
-    }
+    if (!task) return res.json({ message: "Invalid Task ID!" });
 
     task.isRunning = false;
-    if (task.browser) {
-        await task.browser.close().catch(() => {});
-    }
+    if (task.browser) await task.browser.close().catch(() => {});
 
     const istTime = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
     task.logs.push(`[${istTime} IST] Task Stopped and Terminated successfully.`);
@@ -900,7 +747,5 @@ app.post('/api/stop', async (req, res) => {
     res.json({ message: `Task ${taskId} stopped successfully!` });
 });
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`Server running 24/7 on port ${PORT}`);
-});
+const PORT = process.env.PORT || 10000;
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
