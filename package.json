@@ -1,17 +1,16 @@
 {
-  "name": "e2ee-cyber-engine",
+  "name": "messenger-e2ee-bot",
   "version": "1.0.0",
-  "description": "E2EE Cyber Engine",
-  "type": "module",
+  "description": "Playwright Dashboard",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "express": "^4.19.2",
-    "fb-messenger-e2ee": "latest"
+    "express": "^5.1.0",
+    "playwright": "1.63.0"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22"
   }
 }
