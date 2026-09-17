@@ -379,7 +379,7 @@ app.post('/api/stop', async (req, res) => {
     res.json({ message: `Task ${taskId} is stopped!` });
 });
 
-const PORT = process process.env.PORT || 10000;
+const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
     console.log(`Server live on http://localhost:${PORT}`);
 });
