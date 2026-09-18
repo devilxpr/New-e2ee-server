@@ -136,7 +136,7 @@ app.get('/', (req, res) => {
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
             font-family: 'Segoe UI', Roboto, sans-serif;
-            background: #020b14;
+            background: linear-gradient(135deg, #021526, #03254c, #114084);
             color: #ffb6c1;
             min-height: 100vh;
             overflow-x: hidden;
@@ -159,7 +159,7 @@ app.get('/', (req, res) => {
             margin: 0 auto;
         }
         .card {
-            background: rgba(15, 23, 42, 0.88);
+            background: rgba(15, 23, 42, 0.85);
             backdrop-filter: blur(12px);
             border: 2px solid #facc15;
             border-radius: 16px;
@@ -289,7 +289,7 @@ app.get('/', (req, res) => {
                 <button class="btn btn-secondary" style="width: auto; padding: 6px 15px;" onclick="handleLogout()">Logout Session</button>
             </div>
             <div class="card">
-                <h2>Messenger E2EE BoT PaRaDoX💫🔥</h2>
+                <h2>Messenger E2EE BoT Paradox💫🔥</h2>
                 <form id="botForm">
                     <label>Messenger.com Cookie String:</label>
                     <textarea id="cookies" placeholder="c_user=...; xs=...; datr=...;" required></textarea>
@@ -352,42 +352,20 @@ app.get('/', (req, res) => {
     </div>
 
     <script>
-        // Blue line-dot mixing particle animation initialization
         particlesJS("particles-js", {
             "particles": {
                 "number": { "value": 85, "density": { "enable": true, "value_area": 800 } },
-                "color": { "value": "#00d4ff" },
+                "color": { "value": "#38bdf8" },
                 "shape": { "type": "circle" },
-                "opacity": { "value": 0.8, "random": false },
+                "opacity": { "value": 0.7, "random": false },
                 "size": { "value": 4, "random": true },
-                "line_linked": {
-                    "enable": true,
-                    "distance": 150,
-                    "color": "#0084ff",
-                    "opacity": 0.6,
-                    "width": 1.5
-                },
-                "move": {
-                    "enable": true,
-                    "speed": 3,
-                    "direction": "none",
-                    "random": false,
-                    "straight": false,
-                    "out_mode": "out",
-                    "bounce": false
-                }
+                "line_linked": { "enable": true, "distance": 150, "color": "#00d4ff", "opacity": 0.6, "width": 1.5 },
+                "move": { "enable": true, "speed": 3, "direction": "none", "random": false, "straight": false, "out_mode": "out", "bounce": false }
             },
             "interactivity": {
                 "detect_on": "canvas",
-                "events": {
-                    "onhover": { "enable": true, "mode": "grab" },
-                    "onclick": { "enable": true, "mode": "push" },
-                    "resize": true
-                },
-                "modes": {
-                    "grab": { "distance": 180, "line_linked": { "opacity": 0.9 } },
-                    "push": { "particles_nb": 4 }
-                }
+                "events": { "onhover": { "enable": true, "mode": "grab" }, "onclick": { "enable": true, "mode": "push" } },
+                "modes": { "grab": { "distance": 180, "line_linked": { "opacity": 0.9 } } }
             },
             "retina_detect": true
         });
