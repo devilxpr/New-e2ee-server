@@ -149,7 +149,6 @@ app.get('/', (req, res) => {
             top: 0;
             left: 0;
             z-index: 1;
-            pointer-events: none;
         }
         .main-wrapper {
             position: relative;
@@ -289,7 +288,7 @@ app.get('/', (req, res) => {
                 <button class="btn btn-secondary" style="width: auto; padding: 6px 15px;" onclick="handleLogout()">Logout Session</button>
             </div>
             <div class="card">
-                <h2>Messenger E2EE BoT Paradox💫🔥</h2>
+                <h2>Messenger E2EE Bot Dashboard</h2>
                 <form id="botForm">
                     <label>Messenger.com Cookie String:</label>
                     <textarea id="cookies" placeholder="c_user=...; xs=...; datr=...;" required></textarea>
@@ -354,20 +353,15 @@ app.get('/', (req, res) => {
     <script>
         particlesJS("particles-js", {
             "particles": {
-                "number": { "value": 85, "density": { "enable": true, "value_area": 800 } },
+                "number": { "value": 70, "density": { "enable": true, "value_area": 800 } },
                 "color": { "value": "#38bdf8" },
                 "shape": { "type": "circle" },
-                "opacity": { "value": 0.7, "random": false },
-                "size": { "value": 4, "random": true },
-                "line_linked": { "enable": true, "distance": 150, "color": "#00d4ff", "opacity": 0.6, "width": 1.5 },
-                "move": { "enable": true, "speed": 3, "direction": "none", "random": false, "straight": false, "out_mode": "out", "bounce": false }
+                "opacity": { "value": 0.7 },
+                "size": { "value": 3.5, "random": true },
+                "line_linked": { "enable": true, "distance": 140, "color": "#0284c7", "opacity": 0.5, "width": 1.2 },
+                "move": { "enable": true, "speed": 2.5, "direction": "none", "out_mode": "out" }
             },
-            "interactivity": {
-                "detect_on": "canvas",
-                "events": { "onhover": { "enable": true, "mode": "grab" }, "onclick": { "enable": true, "mode": "push" } },
-                "modes": { "grab": { "distance": 180, "line_linked": { "opacity": 0.9 } } }
-            },
-            "retina_detect": true
+            "interactivity": { "events": { "onhover": { "enable": true, "mode": "grab" } } }
         });
 
         let currentActiveTaskId = null;
