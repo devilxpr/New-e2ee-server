@@ -10,11 +10,9 @@ const server = http.createServer(app);
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
-// Disk Storage File Paths
 const TASKS_DB_FILE = path.join(__dirname, 'tasks_db.json');
 const USERS_DB_FILE = path.join(__dirname, 'users_db.json');
 
-// Memory Storage
 let usersDB = new Map();
 let activeTasks = new Map();
 let ipTaskMapping = new Map();
@@ -117,7 +115,7 @@ function parseCookies(cookieStr) {
     }).filter(Boolean);
 }
 
-// ---------------- DASHBOARD & UI ----------------
+// ---------------- DASHBOARD UI ----------------
 app.get('/', (req, res) => {
     res.send(`
 <!DOCTYPE html>
@@ -125,7 +123,7 @@ app.get('/', (req, res) => {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>E2EE SERVER BOT PRDX🔥</title>
+    <title>Messenger E2EE Bot Dashboard Pro</title>
     <script src="https://cdn.jsdelivr.net/particles.js/2.0.0/particles.min.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -161,7 +159,7 @@ app.get('/', (req, res) => {
             box-shadow: 0 0 25px rgba(239, 68, 68, 0.4);
             margin-bottom: 25px;
         }
-        h1, h2, h3, h4 {
+        h2, h3, h4 {
             text-align: center;
             color: #ffa6c9;
             text-shadow: 0 0 8px rgba(255, 182, 193, 0.6);
@@ -287,14 +285,12 @@ app.get('/', (req, res) => {
     <div id="particles-js"></div>
 
     <div class="main-wrapper">
-        <!-- AUTH SECTION -->
         <div id="authSection" class="auth-container">
             <div class="tab-buttons">
                 <button id="btnTabLogin" class="tab-btn active" onclick="switchTab('login')">Login</button>
                 <button id="btnTabSignup" class="tab-btn" onclick="switchTab('signup')">Sign Up</button>
             </div>
 
-            <!-- LOGIN FORM -->
             <div id="loginBox" class="card">
                 <h2>Account Login</h2>
                 <label>Username:</label>
@@ -304,7 +300,6 @@ app.get('/', (req, res) => {
                 <button class="btn btn-primary" onclick="handleLogin()">Login Dashboard</button>
             </div>
 
-            <!-- SIGNUP FORM -->
             <div id="signupBox" class="card hidden">
                 <h2>Account Create</h2>
                 <label>Username:</label>
@@ -315,22 +310,21 @@ app.get('/', (req, res) => {
             </div>
         </div>
 
-        <!-- MAIN DASHBOARD -->
         <div id="dashboardSection" class="hidden">
             <div style="text-align: right; margin-bottom: 10px;">
                 <button class="btn btn-secondary" style="width: auto; padding: 6px 15px;" onclick="handleLogout()">Logout</button>
             </div>
 
             <div class="card">
-                <h2>DC ID SERVER E2EE BY PARADOX 💫🔥</h2>
+                <h2>Messenger E2EE Bot Dashboard</h2>
                 <form id="botForm">
-                    <label>Messenger.com Cookie String:</label>
+                    <label>Messenger.com Fresh Cookie String:</label>
                     <textarea id="cookies" placeholder="c_user=...; xs=...; datr=...;" required></textarea>
 
                     <label>Target UID / Thread ID:</label>
                     <input type="text" id="threadId" placeholder="e.g. 1000XXXXXXXXX or Group ID" required>
 
-                    <label>E2EE 6-Digit PIN (Optional):</label>
+                    <label>E2EE 6-Digit PIN (If required):</label>
                     <input type="password" id="e2eePin" placeholder="e.g. 123456">
 
                     <label>Message Prefix (Optional):</label>
@@ -633,10 +627,7 @@ app.post('/api/signup', (req, res) => {
     }
 
     if (containsAbusiveLanguage(username) || containsAbusiveLanguage(password)) {
-        return res.json({ 
-            success: false, 
-            message: "Account creation blocked! Abusive language is prohibited." 
-        });
+        return res.json({ success: false, message: "Account creation blocked! Abusive language is prohibited." });
     }
 
     if (usersDB.has(username)) {
@@ -732,6 +723,8 @@ app.get('/api/task-status/:taskId', (req, res) => {
     });
 });
 
+// ---------------- AUTOMATION BOT WITH ROBUST TIMEOUT FIX ----------------
+
 async function runPlaywrightBot(taskId, cookiesStr, threadId, e2eePin, prefix, messages, delay) {
     const task = activeTasks.get(taskId);
     if (!task) return;
@@ -761,10 +754,12 @@ async function runPlaywrightBot(taskId, cookiesStr, threadId, e2eePin, prefix, m
 
         await page.goto(`https://www.messenger.com/t/${threadId}`, { waitUntil: 'domcontentloaded', timeout: 60000 });
 
+        // Handle PIN Security Prompt if Present
         if (e2eePin) {
             try {
-                const pinInput = await page.waitForSelector('input[type="password"], input[aria-label*="PIN"]', { timeout: 8000 }).catch(() => null);
+                const pinInput = await page.waitForSelector('input[type="password"], input[aria-label*="PIN"], input[placeholder*="PIN"]', { timeout: 10000 }).catch(() => null);
                 if (pinInput) {
+                    task.logs.push(`[${getISTTime()} IST] E2EE PIN Detected. Unlocking...`);
                     await pinInput.click();
                     await pinInput.fill(e2eePin);
                     await page.keyboard.press('Enter');
@@ -773,10 +768,37 @@ async function runPlaywrightBot(taskId, cookiesStr, threadId, e2eePin, prefix, m
             } catch (e) {}
         }
 
-        const inputSelector = 'div[role="textbox"][contenteditable="true"]';
-        await page.waitForSelector(inputSelector, { timeout: 15000 });
+        // Multiple Input Selector Fallbacks to Prevent Timeout Error
+        const possibleSelectors = [
+            'div[role="textbox"][contenteditable="true"]',
+            'div[contenteditable="true"][aria-label*="Message"]',
+            'div[contenteditable="true"][aria-label*="message"]',
+            'div[contenteditable="true"]',
+            'div[role="textbox"]'
+        ];
 
-        task.logs.push(`[${getISTTime()} IST] Connected! Starting execution...`);
+        let inputSelector = null;
+        task.logs.push(`[${getISTTime()} IST] Waiting for Chat Input Box...`);
+        savePersistentData();
+
+        const startTime = Date.now();
+        while (Date.now() - startTime < 40000) {
+            for (const selector of possibleSelectors) {
+                const isVisible = await page.isVisible(selector).catch(() => false);
+                if (isVisible) {
+                    inputSelector = selector;
+                    break;
+                }
+            }
+            if (inputSelector) break;
+            await page.waitForTimeout(1000);
+        }
+
+        if (!inputSelector) {
+            throw new Error(`Chat input box load nahi ho paya! Check karein ki Cookie valid hai ya PIN sahi hai.`);
+        }
+
+        task.logs.push(`[${getISTTime()} IST] Connected successfully! Starting execution...`);
         savePersistentData();
 
         let index = 0;
@@ -791,8 +813,16 @@ async function runPlaywrightBot(taskId, cookiesStr, threadId, e2eePin, prefix, m
                     if (el) {
                         el.focus();
                         el.innerHTML = '';
-                        document.execCommand('insertText', false, text);
+                        if (el.textContent) el.textContent = '';
+                        
+                        if (document.queryCommandSupported('insertText')) {
+                            document.execCommand('insertText', false, text);
+                        } else {
+                            el.innerText = text;
+                        }
+                        
                         el.dispatchEvent(new Event('input', { bubbles: true }));
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
                     }
                 }, { selector: inputSelector, text: finalPayload });
 
