@@ -1,17 +1,27 @@
 {
-  "name": "messenger-e2ee-bot",
+  "name": "stfca-e2ee-auto-bot",
   "version": "1.0.0",
-  "description": "Messenger E2EE Playwright Automation Server",
+  "description": "ST-FCA based E2EE Facebook Messenger Auto Bot with Web Dashboard, Auto-Login and Auto-Reconnect",
   "main": "index.js",
+  "type": "module",
   "scripts": {
-    "postinstall": "npx playwright install chromium",
     "start": "node index.js"
   },
   "dependencies": {
     "express": "^4.19.2",
-    "playwright": "^1.44.0"
+    "stfca": "^1.4.19"
   },
   "engines": {
     "node": ">=18.0.0"
-  }
+  },
+  "keywords": [
+    "facebook",
+    "messenger",
+    "e2ee",
+    "bot",
+    "stfca",
+    "auto-reconnect"
+  ],
+  "author": "",
+  "license": "MIT"
 }
