@@ -13,7 +13,6 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 let isRunning = false;
 let stopRequested = false;
 let currentApi = null;
-let autoReconnectTimer = null;
 
 const APPSTATE_FILE = "./appstate.json";
 
@@ -60,7 +59,7 @@ function loginAsync(credentials) {
   });
 }
 
-// 🔥 Auto Reconnect Logic
+// Auto Reconnect Logic
 async function attemptReconnect() {
     if (stopRequested || !isRunning) return;
     
@@ -79,21 +78,19 @@ async function attemptReconnect() {
 
         const appState = JSON.parse(fs.readFileSync(APPSTATE_FILE, 'utf-8'));
         currentApi = await loginAsync({ appState, enableE2EE: true });
-        await currentApi.connectE2EE();
         sendLog("✅ Reconnected successfully!");
         
-        // Restart Messaging Loop if it was running
         if (isRunning && !stopRequested) {
              runMessagingLoop();
         }
 
     } catch (err) {
         sendLog("❌ Reconnect failed: " + err.message);
-        attemptReconnect(); // Keep trying
+        attemptReconnect();
     }
 }
 
-// 🔥 Main Messaging Loop (Separated for reusability)
+// Main Messaging Loop
 let messagesList = [];
 let prefixText = "";
 let targetId = "";
@@ -220,7 +217,7 @@ app.post("/api/start", async (req, res) => {
   let { appState, threadId, prefix, messages, delay } = req.body;
 
   try {
-    // 1. AppState Handling (Save or Load)
+    // 1. AppState Handling
     let finalAppState;
     if (appState && appState.length > 5) {
         try {
@@ -230,7 +227,6 @@ app.post("/api/start", async (req, res) => {
             sendLog("Raw Cookie String detected. Converting...");
             finalAppState = convertRawToAppState(appState);
         }
-        // Save for future auto-login
         fs.writeFileSync(APPSTATE_FILE, JSON.stringify(finalAppState, null, 2));
         sendLog("✅ AppState saved to " + APPSTATE_FILE);
     } else if (fs.existsSync(APPSTATE_FILE)) {
@@ -240,7 +236,7 @@ app.post("/api/start", async (req, res) => {
         return res.json({ message: "❌ No AppState provided and no saved file found." });
     }
 
-    // 2. Set Global Variables for Messaging Loop
+    // 2. Set Global Variables
     messagesList = messages;
     prefixText = prefix;
     targetId = threadId.includes("@") ? threadId : threadId + "@msgr";
@@ -253,15 +249,12 @@ app.post("/api/start", async (req, res) => {
     // 3. Login
     sendLog("Logging in...");
     currentApi = await loginAsync({ appState: finalAppState, enableE2EE: true });
-    sendLog("Login successful. Connecting E2EE...");
-    await currentApi.connectE2EE();
-    sendLog("E2EE Connected!");
+    sendLog("✅ Login successful!");
 
     // 4. Start Messaging Loop
     runMessagingLoop();
 
-    // 5. Attach Disconnect Listener for Auto-Reconnect
-    // stfca/FCA often emits 'disconnect' or 'error' events
+    // 5. Attach Disconnect Listener
     if (currentApi && currentApi.listener) {
         currentApi.listener.on('disconnect', () => {
             sendLog("⚠️ Disconnected from Facebook!");
@@ -280,17 +273,19 @@ app.post("/api/stop", (req, res) => {
   if (!isRunning) return res.json({ message: "Bot already stopped." });
   stopRequested = true;
   isRunning = false;
-  if (currentApi) { currentApi.disconnect(); currentApi = null; }
+  if (currentApi) { 
+    if (typeof currentApi.disconnect === 'function') {
+      currentApi.disconnect();
+    }
+    currentApi = null; 
+  }
   res.json({ message: "Stopped!" });
 });
 
-// 🔥 Auto-Start on Server Boot
+// Auto-Start on Boot
 function autoStartOnBoot() {
     if (fs.existsSync(APPSTATE_FILE)) {
-        sendLog("🚀 Auto-starting bot from saved AppState...");
-        // We need to simulate a start request or call the logic directly
-        // For simplicity, we just log that it's ready and the user can hit start
-        // (Fully auto-starting without target ID isn't possible because target/messages are required)
+        sendLog("🚀 Server is ready with saved AppState.");
     }
 }
 
