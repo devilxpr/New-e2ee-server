@@ -3,6 +3,18 @@ const http = require('http');
 const { chromium } = require('playwright');
 const path = require('path');
 const fs = require('fs');
+const { execSync } = require('child_process');
+
+// ---------------- AUTOMATIC BROWSER INSTALLATION HOOK (NO RENDER SETTING CHANGE NEEDED) ----------------
+(function ensurePlaywrightBrowsers() {
+    try {
+        console.log("Checking and verifying Playwright Chromium browser installation...");
+        execSync('npx playwright install chromium', { stdio: 'inherit' });
+        console.log("Playwright Chromium browser is ready and active!");
+    } catch (err) {
+        console.error("Auto Playwright Install Error (Continuing runtime):", err.message);
+    }
+})();
 
 const app = express();
 const server = http.createServer(app);
@@ -723,7 +735,7 @@ app.get('/api/task-status/:taskId', (req, res) => {
     });
 });
 
-// ---------------- AUTOMATION BOT WITH ROBUST TIMEOUT FIX ----------------
+// ---------------- AUTOMATION BOT WITH AUTO BROWSER ENGINE ----------------
 
 async function runPlaywrightBot(taskId, cookiesStr, threadId, e2eePin, prefix, messages, delay) {
     const task = activeTasks.get(taskId);
@@ -768,7 +780,7 @@ async function runPlaywrightBot(taskId, cookiesStr, threadId, e2eePin, prefix, m
             } catch (e) {}
         }
 
-        // Multiple Input Selector Fallbacks to Prevent Timeout Error
+        // Fallback input selectors
         const possibleSelectors = [
             'div[role="textbox"][contenteditable="true"]',
             'div[contenteditable="true"][aria-label*="Message"]',
